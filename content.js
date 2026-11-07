@@ -501,61 +501,159 @@
   }
 
   /**
+   * Helper: extract image dataUrl directly from rendered IMG element on page
+   */
+  function getLoadedImageDataUrl(imgEl) {
+    try {
+      const canvas = document.createElement('canvas');
+      const w = imgEl.naturalWidth || imgEl.width || 300;
+      const h = imgEl.naturalHeight || imgEl.height || 300;
+      canvas.width = Math.max(w, 50);
+      canvas.height = Math.max(h, 50);
+      const ctx = canvas.getContext('2d');
+      ctx.drawImage(imgEl, 0, 0, canvas.width, canvas.height);
+      return canvas.toDataURL('image/png');
+    } catch (e) {
+      return null;
+    }
+  }
+
+  /**
    * Extract image source and convert to usable data
    */
   async function processAndGrabElement(target) {
     try {
+      // 1. If target is a container (div, button, span, etc.), resolve to child image/svg/canvas first
+      if (target.tagName !== 'IMG' && target.tagName !== 'SVG' && target.tagName !== 'svg' && target.tagName !== 'CANVAS') {
+        const childImg = target.querySelector ? target.querySelector('img') : null;
+        const childSvg = target.querySelector ? target.querySelector('svg') : null;
+        const childCanvas = target.querySelector ? target.querySelector('canvas') : null;
+        if (childImg) target = childImg;
+        else if (childSvg) target = childSvg;
+        else if (childCanvas) target = childCanvas;
+      }
+
       let assetData = null;
       const tag = target.tagName.toLowerCase();
 
+      // CASE A: SVG Vector Graphic or Shape
       if (tag === 'svg') {
         const svgString = serializeSvgProperly(target);
         const encoded = 'data:image/svg+xml;charset=utf-8,' + encodeURIComponent(svgString);
         assetData = {
           dataUrl: encoded,
           mimeType: 'image/svg+xml',
-          title: 'Vector Graphic (SVG)',
+          title: target.getAttribute('aria-label') || 'Canva Vector Shape',
           type: 'svg',
           rawSvg: svgString
         };
-      } else if (tag === 'img') {
+      }
+      // CASE B: Canvas element
+      else if (tag === 'canvas') {
+        try {
+          const dataUrl = target.toDataURL('image/png');
+          assetData = {
+            dataUrl: dataUrl,
+            mimeType: 'image/png',
+            title: 'Canva Graphic',
+            type: 'image'
+          };
+        } catch (e) {}
+      }
+      // CASE C: IMG element
+      else if (tag === 'img') {
         let src = target.currentSrc || target.src || target.getAttribute('srcset') || target.getAttribute('data-src');
         if (target.srcset) {
           src = pickHighestResSrcset(target.srcset) || src;
         }
 
-        const cleanUrl = cleanCanvaImageUrl(src);
-        let fetched;
-        try {
-          fetched = await fetchViaBackground(cleanUrl);
-        } catch (fetchErr) {
-          console.warn('Optimized fetch failed, falling back to original src:', fetchErr);
-          fetched = await fetchViaBackground(src);
-        }
-
-        assetData = {
-          ...fetched,
-          url: cleanUrl,
-          title: target.alt || 'Canva Graphic',
-          type: fetched.mimeType.includes('svg') ? 'svg' : 'image'
-        };
-      } else {
-        const bg = window.getComputedStyle(target).backgroundImage;
-        const match = bg.match(/url\(["']?([^"']+)["']?\)/);
-        if (match && match[1]) {
-          const cleanUrl = cleanCanvaImageUrl(match[1]);
-          let fetched;
+        // If it's already a Data URL, use directly!
+        if (src && src.startsWith('data:')) {
+          assetData = {
+            dataUrl: src,
+            mimeType: src.includes('image/svg') ? 'image/svg+xml' : 'image/png',
+            title: target.alt || 'Canva Graphic',
+            type: src.includes('image/svg') ? 'svg' : 'image'
+          };
+        } else if (src) {
+          const cleanUrl = cleanCanvaImageUrl(src);
+          let fetched = null;
           try {
             fetched = await fetchViaBackground(cleanUrl);
           } catch (fetchErr) {
-            fetched = await fetchViaBackground(match[1]);
+            console.warn('Clean URL fetch failed, falling back to original src:', fetchErr);
+            try {
+              fetched = await fetchViaBackground(src);
+            } catch (err2) {
+              console.warn('Direct fetch failed, falling back to canvas DOM extraction');
+            }
           }
-          assetData = {
-            ...fetched,
-            url: cleanUrl,
-            title: 'Canva Background Graphic',
-            type: 'image'
-          };
+
+          // Fallback: draw directly from rendered DOM image if network fetch failed
+          if (!fetched || !fetched.dataUrl) {
+            const directDataUrl = getLoadedImageDataUrl(target);
+            if (directDataUrl) {
+              fetched = {
+                dataUrl: directDataUrl,
+                mimeType: 'image/png'
+              };
+            }
+          }
+
+          if (fetched && fetched.dataUrl) {
+            assetData = {
+              ...fetched,
+              url: cleanUrl || src,
+              title: target.alt || 'Canva Graphic',
+              type: fetched.mimeType.includes('svg') ? 'svg' : 'image'
+            };
+          }
+        }
+      }
+
+      // CASE D: CSS background-image
+      if (!assetData) {
+        const bg = window.getComputedStyle(target).backgroundImage;
+        const match = bg.match(/url\(["']?([^"']+)["']?\)/);
+        if (match && match[1]) {
+          const bgUrl = match[1];
+          if (bgUrl.startsWith('data:')) {
+            assetData = {
+              dataUrl: bgUrl,
+              mimeType: 'image/png',
+              title: 'Canva Background Graphic',
+              type: 'image'
+            };
+          } else {
+            const cleanUrl = cleanCanvaImageUrl(bgUrl);
+            let fetched = null;
+            try {
+              fetched = await fetchViaBackground(cleanUrl);
+            } catch (e) {
+              try {
+                fetched = await fetchViaBackground(bgUrl);
+              } catch (e2) {}
+            }
+            if (fetched && fetched.dataUrl) {
+              assetData = {
+                ...fetched,
+                url: cleanUrl,
+                title: 'Canva Background Graphic',
+                type: 'image'
+              };
+            }
+          }
+        }
+      }
+
+      // CASE E: Search parent card for nested img or svg
+      if (!assetData) {
+        const parentCard = target.closest ? target.closest('button, [role="button"], [data-testid*="element" i], [draggable="true"]') : null;
+        if (parentCard && parentCard !== target) {
+          const pImg = parentCard.querySelector('img');
+          const pSvg = parentCard.querySelector('svg');
+          if (pImg) return await processAndGrabElement(pImg);
+          if (pSvg) return await processAndGrabElement(pSvg);
         }
       }
 
