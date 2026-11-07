@@ -333,7 +333,7 @@
   }
 
   /**
-   * Helper: Check if an element is a Canva UI icon/badge (e.g. 3-dots, Crown Pro, menu, close)
+   * Helper: Check if an element is specifically a Canva UI control (3-dots menu button or Crown Pro badge)
    */
   function isCanvaUiIcon(el) {
     if (!el) return false;
@@ -342,8 +342,15 @@
       return true;
     }
 
-    const rect = el.getBoundingClientRect ? el.getBoundingClientRect() : { width: 0, height: 0 };
-    const isTiny = rect.width <= 32 || rect.height <= 32;
+    // Explicitly check for Crown / Pro badge
+    if (el.closest && el.closest('[aria-label*="Pro" i], [aria-label*="Crown" i], [data-testid*="crown" i], [data-testid*="pro" i]')) {
+      return true;
+    }
+
+    // Explicitly check for More options (3-dots button)
+    if (el.closest && el.closest('[aria-label*="More" i], [aria-label*="option" i], [data-testid*="more" i], button[aria-haspopup="menu"]')) {
+      return true;
+    }
 
     const checkStr = (
       (el.getAttribute ? (el.getAttribute('aria-label') || '') + ' ' + (el.getAttribute('data-testid') || '') : '') + ' ' +
@@ -351,18 +358,7 @@
       (el.id || '')
     ).toLowerCase();
 
-    // Check for crown / pro / 3-dots / menu / options / favorite / avatar
-    const isUiBadge = /crown|pro-badge|pro_badge|\bpro\b|more|option|ellipsis|three-dot|dots|menu|overflow|favorite|info|close|dismiss|avatar|lock|star/i.test(checkStr);
-    if (isUiBadge) return true;
-
-    // Check parent buttons/wrappers
-    if (el.closest) {
-      const uiParent = el.closest('[aria-label*="More" i], [aria-label*="option" i], [aria-label*="Pro" i], [aria-label*="crown" i], [data-testid*="more" i], [data-testid*="crown" i], [data-testid*="pro" i]');
-      if (uiParent) return true;
-    }
-
-    // Small SVGs in Canva are virtually always UI icons (crowns, 3-dots, badges)
-    if ((el.tagName === 'SVG' || el.tagName === 'svg') && isTiny) {
+    if (/crown|pro-badge|pro_badge|ellipsis|three-dot/i.test(checkStr)) {
       return true;
     }
 
@@ -371,34 +367,37 @@
 
   /**
    * Smart finder for graphic / image / svg elements
-   * Ignores 3-dots and Crown badges to ensure only the real illustration/image is grabbed
+   * Accurately finds both complex illustrations/photos AND simple vector shapes (triangles, stars, etc.)
    */
   function findGraphicTarget(el) {
     if (!el || el === document.body || el === document.documentElement) return null;
 
-    // If cursor is directly on a UI icon (e.g. crown or 3 dots), find its parent card container instead
-    if (isCanvaUiIcon(el)) {
-      const parentCard = el.closest('[role="button"], button, [data-testid*="element" i], [draggable="true"], [data-testid*="grid-item" i], [tabindex="0"]') || el.parentElement;
+    // Check if target is an SVG or inside an SVG (like path, polygon, g, rect, circle)
+    const svgParent = (el.tagName === 'SVG' || el.tagName === 'svg') ? el : (el.closest ? el.closest('svg') : null);
+
+    // If cursor is on a UI icon (crown or 3-dots), redirect to the parent card to find the real graphic
+    if (isCanvaUiIcon(el) || (svgParent && isCanvaUiIcon(svgParent))) {
+      const parentCard = el.closest ? el.closest('[role="button"], button, [data-testid*="element" i], [draggable="true"], [data-testid*="grid-item" i], [tabindex="0"]') : null;
       if (parentCard && parentCard !== document.body && parentCard !== document.documentElement) {
         return getMainGraphicFromCard(parentCard);
       }
       return null;
     }
 
-    // 1. Direct IMG element that is not a UI icon
-    if (el.tagName === 'IMG') {
-      const r = el.getBoundingClientRect();
-      if (r.width > 24 && r.height > 24) return el;
+    // 1. If element is an SVG (e.g. shapes, icons, vector graphics) and not a UI badge
+    if (svgParent && !isCanvaUiIcon(svgParent)) {
+      const r = svgParent.getBoundingClientRect();
+      if (r.width > 12 && r.height > 12) return svgParent;
     }
 
-    // 2. Direct SVG that is actual artwork (> 35px, not crown/3-dots)
-    if (el.tagName === 'SVG' || el.tagName === 'svg') {
+    // 2. Direct IMG element that is not a UI icon
+    if (el.tagName === 'IMG') {
       const r = el.getBoundingClientRect();
-      if (r.width > 35 && r.height > 35) return el;
+      if (r.width > 12 && r.height > 12) return el;
     }
 
     // 3. Find parent card container (the thumbnail tile in the Elements panel)
-    const card = el.closest('[role="button"], button, [data-testid*="element" i], [draggable="true"], [data-testid*="grid-item" i], [tabindex="0"]') || el;
+    const card = el.closest ? el.closest('[role="button"], button, [data-testid*="element" i], [draggable="true"], [data-testid*="grid-item" i], [tabindex="0"]') : null;
     if (card) {
       const mainGraphic = getMainGraphicFromCard(card);
       if (mainGraphic) return mainGraphic;
@@ -408,7 +407,7 @@
     const bg = window.getComputedStyle(el).backgroundImage;
     if (bg && bg !== 'none' && bg.startsWith('url(')) {
       const r = el.getBoundingClientRect();
-      if (r.width > 30 && r.height > 30) return el;
+      if (r.width > 20 && r.height > 20) return el;
     }
 
     return null;
@@ -420,15 +419,14 @@
   function getMainGraphicFromCard(card) {
     if (!card) return null;
 
-    // Check IMG elements first (almost all Canva graphics and photos are <img>)
+    // Check IMG elements first (illustrations and photos)
     const imgs = Array.from(card.querySelectorAll('img')).filter(img => {
       if (isCanvaUiIcon(img)) return false;
       const r = img.getBoundingClientRect();
-      return r.width > 24 && r.height > 24;
+      return r.width > 14 && r.height > 14;
     });
 
     if (imgs.length > 0) {
-      // Pick the largest visible image
       imgs.sort((a, b) => {
         const ra = a.getBoundingClientRect();
         const rb = b.getBoundingClientRect();
@@ -437,11 +435,11 @@
       return imgs[0];
     }
 
-    // Check SVG elements that are genuine artwork (> 35px and not crown / 3-dots)
+    // Check SVG elements (shapes, vectors)
     const svgs = Array.from(card.querySelectorAll('svg')).filter(svg => {
       if (isCanvaUiIcon(svg)) return false;
       const r = svg.getBoundingClientRect();
-      return r.width > 35 && r.height > 35;
+      return r.width > 14 && r.height > 14;
     });
 
     if (svgs.length > 0) {
@@ -459,7 +457,7 @@
       const bg = window.getComputedStyle(node).backgroundImage;
       if (bg && bg !== 'none' && bg.startsWith('url(')) {
         const r = node.getBoundingClientRect();
-        return r.width > 30 && r.height > 30;
+        return r.width > 20 && r.height > 20;
       }
       return false;
     });
@@ -493,6 +491,22 @@
     if (!clone.getAttribute('height')) {
       clone.setAttribute('height', `${h}`);
     }
+
+    // Resolve currentColor and CSS inherited fill colors
+    try {
+      const computedColor = window.getComputedStyle(svgEl).color || window.getComputedStyle(svgEl).fill || '#000000';
+      if (!clone.getAttribute('fill') || clone.getAttribute('fill') === 'currentColor') {
+        clone.setAttribute('fill', computedColor);
+      }
+      clone.querySelectorAll('*').forEach(child => {
+        if (child.getAttribute('fill') === 'currentColor') {
+          child.setAttribute('fill', computedColor);
+        }
+        if (child.getAttribute('stroke') === 'currentColor') {
+          child.setAttribute('stroke', computedColor);
+        }
+      });
+    } catch (e) {}
 
     // Include referenced <defs> symbols if any
     const uses = clone.querySelectorAll('use');
