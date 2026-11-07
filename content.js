@@ -333,36 +333,186 @@
   }
 
   /**
+   * Helper: Check if an element is a Canva UI icon/badge (e.g. 3-dots, Crown Pro, menu, close)
+   */
+  function isCanvaUiIcon(el) {
+    if (!el) return false;
+    // Exclude our own extension UI
+    if (el.closest && el.closest('.ceg-floating-bar, .ceg-drawer, .ceg-highlight-overlay, .ceg-top-banner, .ceg-toast')) {
+      return true;
+    }
+
+    const rect = el.getBoundingClientRect ? el.getBoundingClientRect() : { width: 0, height: 0 };
+    const isTiny = rect.width <= 32 || rect.height <= 32;
+
+    const checkStr = (
+      (el.getAttribute ? (el.getAttribute('aria-label') || '') + ' ' + (el.getAttribute('data-testid') || '') : '') + ' ' +
+      (el.className || '') + ' ' +
+      (el.id || '')
+    ).toLowerCase();
+
+    // Check for crown / pro / 3-dots / menu / options / favorite / avatar
+    const isUiBadge = /crown|pro-badge|pro_badge|\bpro\b|more|option|ellipsis|three-dot|dots|menu|overflow|favorite|info|close|dismiss|avatar|lock|star/i.test(checkStr);
+    if (isUiBadge) return true;
+
+    // Check parent buttons/wrappers
+    if (el.closest) {
+      const uiParent = el.closest('[aria-label*="More" i], [aria-label*="option" i], [aria-label*="Pro" i], [aria-label*="crown" i], [data-testid*="more" i], [data-testid*="crown" i], [data-testid*="pro" i]');
+      if (uiParent) return true;
+    }
+
+    // Small SVGs in Canva are virtually always UI icons (crowns, 3-dots, badges)
+    if ((el.tagName === 'SVG' || el.tagName === 'svg') && isTiny) {
+      return true;
+    }
+
+    return false;
+  }
+
+  /**
    * Smart finder for graphic / image / svg elements
+   * Ignores 3-dots and Crown badges to ensure only the real illustration/image is grabbed
    */
   function findGraphicTarget(el) {
     if (!el || el === document.body || el === document.documentElement) return null;
 
-    // 1. Direct SVG or Image
-    if (el.tagName === 'IMG' || el.tagName === 'SVG' || el.tagName === 'svg') {
-      return el;
+    // If cursor is directly on a UI icon (e.g. crown or 3 dots), find its parent card container instead
+    if (isCanvaUiIcon(el)) {
+      const parentCard = el.closest('[role="button"], button, [data-testid*="element" i], [draggable="true"], [data-testid*="grid-item" i], [tabindex="0"]') || el.parentElement;
+      if (parentCard && parentCard !== document.body && parentCard !== document.documentElement) {
+        return getMainGraphicFromCard(parentCard);
+      }
+      return null;
     }
 
-    // 2. Background image
+    // 1. Direct IMG element that is not a UI icon
+    if (el.tagName === 'IMG') {
+      const r = el.getBoundingClientRect();
+      if (r.width > 24 && r.height > 24) return el;
+    }
+
+    // 2. Direct SVG that is actual artwork (> 35px, not crown/3-dots)
+    if (el.tagName === 'SVG' || el.tagName === 'svg') {
+      const r = el.getBoundingClientRect();
+      if (r.width > 35 && r.height > 35) return el;
+    }
+
+    // 3. Find parent card container (the thumbnail tile in the Elements panel)
+    const card = el.closest('[role="button"], button, [data-testid*="element" i], [draggable="true"], [data-testid*="grid-item" i], [tabindex="0"]') || el;
+    if (card) {
+      const mainGraphic = getMainGraphicFromCard(card);
+      if (mainGraphic) return mainGraphic;
+    }
+
+    // 4. Background image fallback
     const bg = window.getComputedStyle(el).backgroundImage;
     if (bg && bg !== 'none' && bg.startsWith('url(')) {
-      return el;
-    }
-
-    // 3. Child image/SVG inside wrapper (button, card, thumbnail item)
-    const childImg = el.querySelector('img, svg');
-    if (childImg) {
-      return childImg;
-    }
-
-    // 4. Closest button / list item in sidebar
-    const container = el.closest('button, [role="button"], [data-testid*="element" i], [draggable="true"]');
-    if (container) {
-      const imgInContainer = container.querySelector('img, svg');
-      if (imgInContainer) return imgInContainer;
+      const r = el.getBoundingClientRect();
+      if (r.width > 30 && r.height > 30) return el;
     }
 
     return null;
+  }
+
+  /**
+   * Find the main artwork element inside a Canva element card/button
+   */
+  function getMainGraphicFromCard(card) {
+    if (!card) return null;
+
+    // Check IMG elements first (almost all Canva graphics and photos are <img>)
+    const imgs = Array.from(card.querySelectorAll('img')).filter(img => {
+      if (isCanvaUiIcon(img)) return false;
+      const r = img.getBoundingClientRect();
+      return r.width > 24 && r.height > 24;
+    });
+
+    if (imgs.length > 0) {
+      // Pick the largest visible image
+      imgs.sort((a, b) => {
+        const ra = a.getBoundingClientRect();
+        const rb = b.getBoundingClientRect();
+        return (rb.width * rb.height) - (ra.width * ra.height);
+      });
+      return imgs[0];
+    }
+
+    // Check SVG elements that are genuine artwork (> 35px and not crown / 3-dots)
+    const svgs = Array.from(card.querySelectorAll('svg')).filter(svg => {
+      if (isCanvaUiIcon(svg)) return false;
+      const r = svg.getBoundingClientRect();
+      return r.width > 35 && r.height > 35;
+    });
+
+    if (svgs.length > 0) {
+      svgs.sort((a, b) => {
+        const ra = a.getBoundingClientRect();
+        const rb = b.getBoundingClientRect();
+        return (rb.width * rb.height) - (ra.width * ra.height);
+      });
+      return svgs[0];
+    }
+
+    // Check background images
+    const bgEls = Array.from(card.querySelectorAll('*')).filter(node => {
+      if (isCanvaUiIcon(node)) return false;
+      const bg = window.getComputedStyle(node).backgroundImage;
+      if (bg && bg !== 'none' && bg.startsWith('url(')) {
+        const r = node.getBoundingClientRect();
+        return r.width > 30 && r.height > 30;
+      }
+      return false;
+    });
+
+    if (bgEls.length > 0) return bgEls[0];
+
+    return null;
+  }
+
+  /**
+   * Properly serialize SVG with XML namespaces and dimensions so it renders reliably
+   */
+  function serializeSvgProperly(svgEl) {
+    const clone = svgEl.cloneNode(true);
+    if (!clone.getAttribute('xmlns')) {
+      clone.setAttribute('xmlns', 'http://www.w3.org/2000/svg');
+    }
+    if (!clone.getAttribute('xmlns:xlink')) {
+      clone.setAttribute('xmlns:xlink', 'http://www.w3.org/1999/xlink');
+    }
+    const rect = svgEl.getBoundingClientRect();
+    const w = Math.round(rect.width) || 300;
+    const h = Math.round(rect.height) || 300;
+
+    if (!clone.getAttribute('viewBox') && w > 0 && h > 0) {
+      clone.setAttribute('viewBox', `0 0 ${w} ${h}`);
+    }
+    if (!clone.getAttribute('width')) {
+      clone.setAttribute('width', `${w}`);
+    }
+    if (!clone.getAttribute('height')) {
+      clone.setAttribute('height', `${h}`);
+    }
+
+    // Include referenced <defs> symbols if any
+    const uses = clone.querySelectorAll('use');
+    uses.forEach(use => {
+      const href = use.getAttribute('href') || use.getAttribute('xlink:href');
+      if (href && href.startsWith('#')) {
+        const id = href.slice(1);
+        const symbolDef = document.getElementById(id);
+        if (symbolDef) {
+          let defs = clone.querySelector('defs');
+          if (!defs) {
+            defs = document.createElementNS('http://www.w3.org/2000/svg', 'defs');
+            clone.insertBefore(defs, clone.firstChild);
+          }
+          defs.appendChild(symbolDef.cloneNode(true));
+        }
+      }
+    });
+
+    return new XMLSerializer().serializeToString(clone);
   }
 
   /**
@@ -374,7 +524,7 @@
       const tag = target.tagName.toLowerCase();
 
       if (tag === 'svg') {
-        const svgString = new XMLSerializer().serializeToString(target);
+        const svgString = serializeSvgProperly(target);
         const encoded = 'data:image/svg+xml;charset=utf-8,' + encodeURIComponent(svgString);
         assetData = {
           dataUrl: encoded,
@@ -460,6 +610,18 @@
     if (!url) return url;
     try {
       const parsed = new URL(url, window.location.href);
+
+      // FOR SVGs: DO NOT add raster resize query parameters!
+      // Adding w=2400 to an SVG CDN endpoint causes Canva's server to return 400 or empty!
+      if (parsed.pathname.endsWith('.svg') || url.includes('.svg?')) {
+        parsed.searchParams.delete('w');
+        parsed.searchParams.delete('h');
+        parsed.searchParams.delete('fit');
+        parsed.searchParams.delete('quality');
+        return parsed.toString();
+      }
+
+      // For PNG/JPG raster images: boost resolution
       if (parsed.searchParams.has('w')) {
         parsed.searchParams.set('w', '2400');
       }
@@ -511,8 +673,17 @@
 
   /**
    * Insert Asset directly into Canva Canvas
+   * Emulates native user drag-drop (single event with debounce to prevent duplicates)
    */
+  let lastInsertTimestamp = 0;
   async function insertAssetToCanvas(item) {
+    const now = Date.now();
+    if (now - lastInsertTimestamp < 800) {
+      console.log('Skipping duplicate insert within 800ms');
+      return;
+    }
+    lastInsertTimestamp = now;
+
     showToast('🚀 Injecting onto canvas...');
 
     try {
@@ -524,7 +695,7 @@
       const targetCanvas = findCanvaCanvas();
       const dropTarget = targetCanvas || document.body;
 
-      // Method A: DataTransfer Drop Simulation
+      // SINGLE Method: DataTransfer Drop Simulation (never fire paste simultaneously)
       const dataTransfer = new DataTransfer();
       dataTransfer.items.add(file);
 
@@ -547,22 +718,7 @@
       dropTarget.dispatchEvent(new DragEvent('dragover', eventInit));
       dropTarget.dispatchEvent(new DragEvent('drop', eventInit));
 
-      // Method B: Synthetic Clipboard Paste
-      const pasteDataTransfer = new DataTransfer();
-      pasteDataTransfer.items.add(file);
-
-      const pasteEvent = new ClipboardEvent('paste', {
-        bubbles: true,
-        cancelable: true,
-        composed: true,
-        clipboardData: pasteDataTransfer
-      });
-
-      const activeEl = document.activeElement || dropTarget;
-      activeEl.dispatchEvent(pasteEvent);
-      document.dispatchEvent(pasteEvent);
-
-      // Method C: Copy to native clipboard
+      // Also copy to native clipboard so user can press Ctrl+V manually if desired
       try {
         if (navigator.clipboard && navigator.clipboard.write && item.mimeType.includes('png')) {
           await navigator.clipboard.write([
@@ -571,10 +727,10 @@
         }
       } catch (clipErr) {}
 
-      showToast('🎉 Element placed onto canvas! (Or press Ctrl+V)');
+      showToast('🎉 Element placed onto canvas!');
     } catch (err) {
       console.error('Failed to insert into canvas:', err);
-      showToast('⚠️ Dropped simulated. You can also drag it from the Tray onto canvas!', 'info');
+      showToast('⚠️ Drop simulated. You can also drag it from the Tray onto canvas!', 'info');
     }
   }
 
