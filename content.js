@@ -5,12 +5,53 @@
 (function () {
   // Prevent duplicate injection
   if (window.__CANVA_ELEMENT_GRABBER_INITIALIZED__) {
-    console.log('Canva Element Grabber already initialized.');
+    console.log('Canva Element Grabber already running.');
     return;
   }
   window.__CANVA_ELEMENT_GRABBER_INITIALIZED__ = true;
 
   console.log('Canva Element Grabber initialized on page.');
+
+  // Safe Chrome API helpers to avoid "Extension context invalidated"
+  function isExtensionAlive() {
+    return typeof chrome !== 'undefined' && !!chrome.runtime && !!chrome.runtime.id;
+  }
+
+  function safeStorageGet(keys, cb) {
+    if (isExtensionAlive() && chrome.storage && chrome.storage.local) {
+      try {
+        chrome.storage.local.get(keys, cb);
+      } catch (e) {
+        console.warn('Storage get error:', e);
+      }
+    }
+  }
+
+  function safeStorageSet(data, cb) {
+    if (isExtensionAlive() && chrome.storage && chrome.storage.local) {
+      try {
+        chrome.storage.local.set(data, () => {
+          if (chrome.runtime.lastError) {}
+          if (cb) cb();
+        });
+      } catch (e) {
+        console.warn('Storage set error:', e);
+      }
+    }
+  }
+
+  function safeSendMessage(msg, cb) {
+    if (isExtensionAlive()) {
+      try {
+        chrome.runtime.sendMessage(msg, (res) => {
+          if (chrome.runtime.lastError) {}
+          if (cb) cb(res);
+        });
+      } catch (e) {
+        console.warn('Send message error:', e);
+      }
+    }
+  }
 
   // State
   let isInspectorActive = false;
@@ -19,10 +60,12 @@
   let grabbedElements = [];
 
   // Load saved preferences
-  chrome.storage.local.get(['autoInsert', 'grabbedElements'], (res) => {
-    if (res.autoInsert !== undefined) autoInsert = res.autoInsert;
-    if (res.grabbedElements) grabbedElements = res.grabbedElements;
-    renderDrawerItems();
+  safeStorageGet(['autoInsert', 'grabbedElements'], (res) => {
+    if (res) {
+      if (res.autoInsert !== undefined) autoInsert = res.autoInsert;
+      if (res.grabbedElements) grabbedElements = res.grabbedElements;
+      renderDrawerItems();
+    }
   });
 
   // UI Elements
@@ -48,59 +91,61 @@
   });
 
   // Listen for messages from popup
-  chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
-    if (request.action === 'PING') {
-      sendResponse({ success: true, pong: true });
-      return false;
-    }
-
-    if (request.action === 'TOGGLE_INSPECT') {
-      const active = request.active !== undefined ? request.active : !isInspectorActive;
-      setInspectorActive(active);
-      sendResponse({ success: true, active: isInspectorActive });
-      return false;
-    }
-
-    if (request.action === 'GET_STATUS') {
-      sendResponse({
-        success: true,
-        isInspectorActive,
-        autoInsert,
-        grabbedCount: grabbedElements.length,
-        latestItem: grabbedElements[0] || null
-      });
-      return false;
-    }
-
-    if (request.action === 'SET_AUTO_INSERT') {
-      autoInsert = !!request.enabled;
-      chrome.storage.local.set({ autoInsert });
-      updateAutoInsertUI();
-      sendResponse({ success: true });
-      return false;
-    }
-
-    if (request.action === 'INSERT_ITEM') {
-      const item = grabbedElements.find(i => i.id === request.id) || request.item;
-      if (item) {
-        insertAssetToCanvas(item);
-        sendResponse({ success: true });
-      } else {
-        sendResponse({ success: false, error: 'Item not found' });
+  if (isExtensionAlive() && chrome.runtime.onMessage) {
+    chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
+      if (request.action === 'PING') {
+        sendResponse({ success: true, pong: true });
+        return false;
       }
-      return false;
-    }
 
-    if (request.action === 'CLEAR_ITEMS') {
-      grabbedElements = [];
-      chrome.storage.local.set({ grabbedElements: [] });
-      renderDrawerItems();
-      sendResponse({ success: true });
-      return false;
-    }
+      if (request.action === 'TOGGLE_INSPECT') {
+        const active = request.active !== undefined ? request.active : !isInspectorActive;
+        setInspectorActive(active);
+        sendResponse({ success: true, active: isInspectorActive });
+        return false;
+      }
 
-    return false;
-  });
+      if (request.action === 'GET_STATUS') {
+        sendResponse({
+          success: true,
+          isInspectorActive,
+          autoInsert,
+          grabbedCount: grabbedElements.length,
+          latestItem: grabbedElements[0] || null
+        });
+        return false;
+      }
+
+      if (request.action === 'SET_AUTO_INSERT') {
+        autoInsert = !!request.enabled;
+        safeStorageSet({ autoInsert });
+        updateAutoInsertUI();
+        sendResponse({ success: true });
+        return false;
+      }
+
+      if (request.action === 'INSERT_ITEM') {
+        const item = grabbedElements.find(i => i.id === request.id) || request.item;
+        if (item) {
+          insertAssetToCanvas(item);
+          sendResponse({ success: true });
+        } else {
+          sendResponse({ success: false, error: 'Item not found' });
+        }
+        return false;
+      }
+
+      if (request.action === 'CLEAR_ITEMS') {
+        grabbedElements = [];
+        safeStorageSet({ grabbedElements: [] });
+        renderDrawerItems();
+        sendResponse({ success: true });
+        return false;
+      }
+
+      return false;
+    });
+  }
 
   /**
    * Create all DOM elements for inspector and floating toolbar
@@ -192,7 +237,7 @@
     document.getElementById('ceg-btn-inspect').addEventListener('click', toggleInspector);
     document.getElementById('ceg-btn-auto').addEventListener('click', () => {
       autoInsert = !autoInsert;
-      chrome.storage.local.set({ autoInsert });
+      safeStorageSet({ autoInsert });
       updateAutoInsertUI();
       showToast(autoInsert ? '⚡ Auto-Drop ON: Clicked items drop straight onto canvas' : '⚡ Auto-Drop OFF: Clicked items save to Tray');
     });
@@ -205,7 +250,7 @@
     });
     document.getElementById('ceg-clear-tray-btn').addEventListener('click', () => {
       grabbedElements = [];
-      chrome.storage.local.set({ grabbedElements: [] });
+      safeStorageSet({ grabbedElements: [] });
       renderDrawerItems();
       showToast('Tray cleared');
     });
@@ -253,9 +298,7 @@
       window.removeEventListener('click', handleClick, true);
     }
 
-    try {
-      chrome.runtime.sendMessage({ action: 'UPDATE_BADGE', active });
-    } catch (e) {}
+    safeSendMessage({ action: 'UPDATE_BADGE', active });
   }
 
   function toggleDrawer() {
@@ -274,12 +317,12 @@
     if (!isInspectorActive) return;
 
     // Ignore extension UI
-    if (e.target.closest('.ceg-floating-bar') || e.target.closest('.ceg-drawer') || e.target.closest('.ceg-highlight-overlay') || e.target.closest('.ceg-top-banner')) {
+    if (e.target.closest && (e.target.closest('.ceg-floating-bar') || e.target.closest('.ceg-drawer') || e.target.closest('.ceg-highlight-overlay') || e.target.closest('.ceg-top-banner'))) {
       overlayEl.style.display = 'none';
       return;
     }
 
-    // Find graphic target
+    // Find candidate graphic target
     const target = findGraphicTarget(e.target);
     if (!target) {
       overlayEl.style.display = 'none';
@@ -299,8 +342,8 @@
     // Tooltip info
     const tag = target.tagName.toLowerCase();
     let typeName = 'Graphic';
-    if (tag === 'svg' || target.querySelector('svg')) typeName = 'Vector SVG';
-    else if (tag === 'img' || target.querySelector('img')) typeName = 'Image (PNG/JPG)';
+    if (tag === 'svg' || target.querySelector?.('svg')) typeName = 'Vector SVG / Shape';
+    else if (tag === 'img' || target.querySelector?.('img')) typeName = 'Image (PNG/JPG)';
     tooltipEl.innerText = `🎯 Click to Grab ${typeName} (${Math.round(rect.width)}×${Math.round(rect.height)})`;
   }
 
@@ -311,7 +354,7 @@
     if (!isInspectorActive) return;
 
     // Ignore clicks on our UI
-    if (e.target.closest('.ceg-floating-bar') || e.target.closest('.ceg-drawer') || e.target.closest('.ceg-highlight-overlay') || e.target.closest('.ceg-top-banner')) {
+    if (e.target.closest && (e.target.closest('.ceg-floating-bar') || e.target.closest('.ceg-drawer') || e.target.closest('.ceg-highlight-overlay') || e.target.closest('.ceg-top-banner'))) {
       return;
     }
 
@@ -321,7 +364,7 @@
 
     const target = hoveredElement || findGraphicTarget(e.target);
     if (!target) {
-      showToast('❌ No graphic detected here. Try hovering over an image or icon.', 'error');
+      showToast('❌ No graphic detected here. Try hovering over an image, shape or icon.', 'error');
       return;
     }
 
@@ -333,142 +376,70 @@
   }
 
   /**
-   * Helper: Check if an element is specifically a Canva UI control (3-dots menu button or Crown Pro badge)
-   */
-  function isCanvaUiIcon(el) {
-    if (!el) return false;
-    // Exclude our own extension UI
-    if (el.closest && el.closest('.ceg-floating-bar, .ceg-drawer, .ceg-highlight-overlay, .ceg-top-banner, .ceg-toast')) {
-      return true;
-    }
-
-    // Explicitly check for Crown / Pro badge
-    if (el.closest && el.closest('[aria-label*="Pro" i], [aria-label*="Crown" i], [data-testid*="crown" i], [data-testid*="pro" i]')) {
-      return true;
-    }
-
-    // Explicitly check for More options (3-dots button)
-    if (el.closest && el.closest('[aria-label*="More" i], [aria-label*="option" i], [data-testid*="more" i], button[aria-haspopup="menu"]')) {
-      return true;
-    }
-
-    const checkStr = (
-      (el.getAttribute ? (el.getAttribute('aria-label') || '') + ' ' + (el.getAttribute('data-testid') || '') : '') + ' ' +
-      (el.className || '') + ' ' +
-      (el.id || '')
-    ).toLowerCase();
-
-    if (/crown|pro-badge|pro_badge|ellipsis|three-dot/i.test(checkStr)) {
-      return true;
-    }
-
-    return false;
-  }
-
-  /**
-   * Smart finder for graphic / image / svg elements
-   * Accurately finds both complex illustrations/photos AND simple vector shapes (triangles, stars, etc.)
+   * Universal Graphic Target Finder:
+   * Selects ANY element clicked in Canva (photos, illustrations, shapes, svgs, stickers)
    */
   function findGraphicTarget(el) {
     if (!el || el === document.body || el === document.documentElement) return null;
 
-    // Check if target is an SVG or inside an SVG (like path, polygon, g, rect, circle)
-    const svgParent = (el.tagName === 'SVG' || el.tagName === 'svg') ? el : (el.closest ? el.closest('svg') : null);
-
-    // If cursor is on a UI icon (crown or 3-dots), redirect to the parent card to find the real graphic
-    if (isCanvaUiIcon(el) || (svgParent && isCanvaUiIcon(svgParent))) {
-      const parentCard = el.closest ? el.closest('[role="button"], button, [data-testid*="element" i], [draggable="true"], [data-testid*="grid-item" i], [tabindex="0"]') : null;
-      if (parentCard && parentCard !== document.body && parentCard !== document.documentElement) {
-        return getMainGraphicFromCard(parentCard);
-      }
+    // Ignore extension UI
+    if (el.closest && el.closest('.ceg-floating-bar, .ceg-drawer, .ceg-highlight-overlay, .ceg-top-banner, .ceg-toast')) {
       return null;
     }
 
-    // 1. If element is an SVG (e.g. shapes, icons, vector graphics) and not a UI badge
-    if (svgParent && !isCanvaUiIcon(svgParent)) {
-      const r = svgParent.getBoundingClientRect();
-      if (r.width > 12 && r.height > 12) return svgParent;
+    // 1. Direct SVG, Image or Canvas
+    if (el.tagName === 'IMG' || el.tagName === 'SVG' || el.tagName === 'svg' || el.tagName === 'CANVAS') {
+      return el;
     }
 
-    // 2. Direct IMG element that is not a UI icon
-    if (el.tagName === 'IMG') {
-      const r = el.getBoundingClientRect();
-      if (r.width > 12 && r.height > 12) return el;
+    // 2. Element inside an SVG (like path, polygon, g, circle, rect) -> return parent SVG
+    const parentSvg = el.closest ? el.closest('svg') : null;
+    if (parentSvg) {
+      return parentSvg;
     }
 
-    // 3. Find parent card container (the thumbnail tile in the Elements panel)
-    const card = el.closest ? el.closest('[role="button"], button, [data-testid*="element" i], [draggable="true"], [data-testid*="grid-item" i], [tabindex="0"]') : null;
-    if (card) {
-      const mainGraphic = getMainGraphicFromCard(card);
-      if (mainGraphic) return mainGraphic;
+    // 3. Container button/card in sidebar
+    const container = el.closest ? el.closest('button, [role="button"], [data-testid*="element" i], [draggable="true"], [tabindex]') : null;
+    if (container) {
+      // Look for IMG first
+      const img = container.querySelector('img');
+      if (img) return img;
+
+      // Look for SVGs inside (pick the largest one, so crown/3-dot icons don't override the main graphic)
+      const svgs = Array.from(container.querySelectorAll('svg'));
+      if (svgs.length > 0) {
+        svgs.sort((a, b) => {
+          const ra = a.getBoundingClientRect();
+          const rb = b.getBoundingClientRect();
+          return (rb.width * rb.height) - (ra.width * ra.height);
+        });
+        return svgs[0];
+      }
     }
 
-    // 4. Background image fallback
+    // 4. Direct child image/svg
+    const child = el.querySelector ? el.querySelector('img, svg') : null;
+    if (child) {
+      return child;
+    }
+
+    // 5. Background image
     const bg = window.getComputedStyle(el).backgroundImage;
     if (bg && bg !== 'none' && bg.startsWith('url(')) {
-      const r = el.getBoundingClientRect();
-      if (r.width > 20 && r.height > 20) return el;
+      return el;
+    }
+
+    // 6. Any element with dimensions > 10px
+    const rect = el.getBoundingClientRect();
+    if (rect.width > 10 && rect.height > 10) {
+      return el;
     }
 
     return null;
   }
 
   /**
-   * Find the main artwork element inside a Canva element card/button
-   */
-  function getMainGraphicFromCard(card) {
-    if (!card) return null;
-
-    // Check IMG elements first (illustrations and photos)
-    const imgs = Array.from(card.querySelectorAll('img')).filter(img => {
-      if (isCanvaUiIcon(img)) return false;
-      const r = img.getBoundingClientRect();
-      return r.width > 14 && r.height > 14;
-    });
-
-    if (imgs.length > 0) {
-      imgs.sort((a, b) => {
-        const ra = a.getBoundingClientRect();
-        const rb = b.getBoundingClientRect();
-        return (rb.width * rb.height) - (ra.width * ra.height);
-      });
-      return imgs[0];
-    }
-
-    // Check SVG elements (shapes, vectors)
-    const svgs = Array.from(card.querySelectorAll('svg')).filter(svg => {
-      if (isCanvaUiIcon(svg)) return false;
-      const r = svg.getBoundingClientRect();
-      return r.width > 14 && r.height > 14;
-    });
-
-    if (svgs.length > 0) {
-      svgs.sort((a, b) => {
-        const ra = a.getBoundingClientRect();
-        const rb = b.getBoundingClientRect();
-        return (rb.width * rb.height) - (ra.width * ra.height);
-      });
-      return svgs[0];
-    }
-
-    // Check background images
-    const bgEls = Array.from(card.querySelectorAll('*')).filter(node => {
-      if (isCanvaUiIcon(node)) return false;
-      const bg = window.getComputedStyle(node).backgroundImage;
-      if (bg && bg !== 'none' && bg.startsWith('url(')) {
-        const r = node.getBoundingClientRect();
-        return r.width > 20 && r.height > 20;
-      }
-      return false;
-    });
-
-    if (bgEls.length > 0) return bgEls[0];
-
-    return null;
-  }
-
-  /**
-   * Properly serialize SVG with XML namespaces and dimensions so it renders reliably
+   * Properly serialize SVG with namespaces, dimensions, and computed fill colors
    */
   function serializeSvgProperly(svgEl) {
     const clone = svgEl.cloneNode(true);
@@ -606,15 +577,13 @@
       if (grabbedElements.length > 50) grabbedElements.pop();
 
       // Store locally
-      chrome.storage.local.set({
+      safeStorageSet({
         grabbedElements,
         latestGrabbed: item
       });
 
       // Broadcast to popup if open
-      try {
-        chrome.runtime.sendMessage({ action: 'ITEM_GRABBED', item });
-      } catch (e) {}
+      safeSendMessage({ action: 'ITEM_GRABBED', item });
 
       renderDrawerItems();
       showToast(`✨ Successfully grabbed "${item.title}"!`);
@@ -721,7 +690,7 @@
 
   function fetchViaBackground(url) {
     return new Promise((resolve, reject) => {
-      chrome.runtime.sendMessage({ action: 'FETCH_ASSET', url }, (response) => {
+      safeSendMessage({ action: 'FETCH_ASSET', url }, (response) => {
         if (chrome.runtime.lastError) {
           reject(new Error(chrome.runtime.lastError.message));
         } else if (response && response.success) {
