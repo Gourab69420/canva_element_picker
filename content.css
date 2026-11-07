@@ -1,61 +1,119 @@
 /* Canva Element Grabber Styles */
 
-/* 1. Neon Green Cursor styling when inspector is active */
-body.ceg-inspecting,
-body.ceg-inspecting * {
-  cursor: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='32' height='32' viewBox='0 0 32 32'%3E%3Ccircle cx='16' cy='16' r='10' fill='none' stroke='%2300ff66' stroke-width='2.2' filter='drop-shadow(0 0 2px %23000)'/%3E%3Ccircle cx='16' cy='16' r='2.5' fill='%2300ff66' filter='drop-shadow(0 0 2px %23000)'/%3E%3Cline x1='16' y1='1' x2='16' y2='8' stroke='%2300ff66' stroke-width='2.2' stroke-linecap='round' filter='drop-shadow(0 0 2px %23000)'/%3E%3Cline x1='16' y1='24' x2='16' y2='31' stroke='%2300ff66' stroke-width='2.2' stroke-linecap='round' filter='drop-shadow(0 0 2px %23000)'/%3E%3Cline x1='1' y1='16' x2='8' y2='16' stroke='%2300ff66' stroke-width='2.2' stroke-linecap='round' filter='drop-shadow(0 0 2px %23000)'/%3E%3Cline x1='24' y1='16' x2='31' y2='16' stroke='%2300ff66' stroke-width='2.2' stroke-linecap='round' filter='drop-shadow(0 0 2px %23000)'/%3E%3C/svg%3E") 16 16, crosshair !important;
+/* 1. Unmistakable Glowing Green Screen Border when Inspector is Active */
+html.ceg-inspecting body {
+  outline: 4px solid #00ff66 !important;
+  outline-offset: -4px !important;
 }
 
-/* Keep standard cursor for the extension floating bar and drawer */
-body.ceg-inspecting .ceg-floating-bar,
-body.ceg-inspecting .ceg-floating-bar *,
-body.ceg-inspecting .ceg-drawer,
-body.ceg-inspecting .ceg-drawer * {
+/* 2. Neon Green Precision Crosshair Cursor */
+html.ceg-inspecting,
+html.ceg-inspecting *,
+body.ceg-inspecting,
+body.ceg-inspecting * {
+  cursor: url("data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAACAAAAAgCAYAAABzenr0AAAAlElEQVR42u2WSw7AIAhEPVwPP7eyiyb9JMUhCsICE3a0vOgM0Nr8wU9sPWj96HcUQAFsAngU/y7+hXBzhFxYBnG6bm0YQYBcNYZPswgx+qHUCc0gQJQ+asWw0ASzGZsFyzYF+VhTABoALibfHIXFmNJnc6/8AojXQLgLEveB4E4YPgtSTMMU+0CKjSjFTlhreQG4AJykNcRRwroD6AAAAABJRU5ErkJggg==") 16 16, crosshair !important;
+}
+
+/* Exclude Extension UI from crosshair */
+.ceg-floating-bar,
+.ceg-floating-bar *,
+.ceg-drawer,
+.ceg-drawer *,
+.ceg-top-banner,
+.ceg-top-banner * {
   cursor: default !important;
 }
 
-body.ceg-inspecting .ceg-btn,
-body.ceg-inspecting .ceg-btn *,
-body.ceg-inspecting .ceg-btn-sm,
-body.ceg-inspecting .ceg-btn-text,
-body.ceg-inspecting .ceg-btn-icon {
+.ceg-btn,
+.ceg-btn *,
+.ceg-btn-sm,
+.ceg-btn-text,
+.ceg-btn-icon {
   cursor: pointer !important;
 }
 
-body.ceg-inspecting .ceg-bar-handle {
+.ceg-bar-handle {
   cursor: grab !important;
 }
 
-/* 2. Highlight Overlay */
+/* 3. Top Notification Banner when Active */
+.ceg-top-banner {
+  position: fixed;
+  top: 12px;
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 2147483647;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  background: #0f172a;
+  border: 2px solid #00ff66;
+  border-radius: 30px;
+  padding: 8px 20px;
+  box-shadow: 0 0 20px rgba(0, 255, 102, 0.5), 0 8px 30px rgba(0, 0, 0, 0.7);
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+  color: #ffffff;
+  font-size: 13px;
+  font-weight: 600;
+  animation: ceg-slide-down 0.25s ease-out;
+}
+
+.ceg-pulse-dot {
+  width: 10px;
+  height: 10px;
+  background: #00ff66;
+  border-radius: 50%;
+  box-shadow: 0 0 10px #00ff66;
+  animation: ceg-pulse 1.2s infinite;
+}
+
+.ceg-banner-exit-btn {
+  background: #1e293b;
+  border: 1px solid #334155;
+  color: #94a3b8;
+  border-radius: 14px;
+  padding: 3px 10px;
+  font-size: 11px;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.ceg-banner-exit-btn:hover {
+  background: #ef4444;
+  border-color: #ef4444;
+  color: #ffffff;
+}
+
+/* 4. Highlight Overlay */
 .ceg-highlight-overlay {
   position: absolute;
   pointer-events: none;
   z-index: 2147483640;
-  border: 2px solid #00ff66;
-  background: rgba(0, 255, 102, 0.16);
-  box-shadow: 0 0 14px rgba(0, 255, 102, 0.7), inset 0 0 8px rgba(0, 255, 102, 0.35);
-  border-radius: 4px;
-  transition: all 0.05s ease-out;
+  border: 2.5px solid #00ff66 !important;
+  background: rgba(0, 255, 102, 0.18) !important;
+  box-shadow: 0 0 16px rgba(0, 255, 102, 0.7), inset 0 0 8px rgba(0, 255, 102, 0.4);
+  border-radius: 6px;
+  transition: all 0.04s ease-out;
 }
 
 .ceg-tooltip {
   position: absolute;
-  top: -30px;
+  top: -32px;
   left: 0;
-  background: #18181b;
-  color: #f4f4f5;
+  background: #09090b;
+  color: #00ff66;
   font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
   font-size: 11px;
-  font-weight: 600;
-  padding: 4px 8px;
-  border-radius: 4px;
-  border: 1px solid #3f3f46;
+  font-weight: 700;
+  padding: 4px 10px;
+  border-radius: 6px;
+  border: 1px solid #00ff66;
   white-space: nowrap;
-  box-shadow: 0 4px 10px rgba(0, 0, 0, 0.4);
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.6);
   pointer-events: none;
 }
 
-/* 3. Floating Toolbar */
+/* 5. Floating Toolbar */
 .ceg-floating-bar {
   position: fixed;
   bottom: 24px;
@@ -64,17 +122,16 @@ body.ceg-inspecting .ceg-bar-handle {
   display: flex;
   align-items: center;
   gap: 8px;
-  background: rgba(24, 24, 27, 0.92);
+  background: rgba(24, 24, 27, 0.94);
   backdrop-filter: blur(12px);
   -webkit-backdrop-filter: blur(12px);
-  border: 1px solid rgba(255, 255, 255, 0.12);
+  border: 1px solid rgba(255, 255, 255, 0.15);
   border-radius: 30px;
   padding: 6px 12px;
-  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.35);
+  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.45);
   font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
   color: #f4f4f5;
   user-select: none;
-  transition: transform 0.2s ease, opacity 0.2s ease;
 }
 
 .ceg-floating-bar.ceg-minimized > *:not(.ceg-bar-title):not(#ceg-btn-close) {
@@ -89,15 +146,11 @@ body.ceg-inspecting .ceg-bar-handle {
   padding-right: 4px;
 }
 
-.ceg-bar-handle:active {
-  cursor: grabbing;
-}
-
 .ceg-bar-title {
   font-size: 12px;
   font-weight: 700;
   letter-spacing: 0.5px;
-  background: linear-gradient(135deg, #a78bfa, #38bdf8);
+  background: linear-gradient(135deg, #34d399, #00ff66);
   -webkit-background-clip: text;
   -webkit-text-fill-color: transparent;
   padding-right: 6px;
@@ -125,17 +178,17 @@ body.ceg-inspecting .ceg-bar-handle {
 }
 
 .ceg-btn.active {
-  background: #7c3aed;
-  border-color: #8b5cf6;
+  background: #059669;
+  border-color: #00ff66;
   color: #ffffff;
-  box-shadow: 0 0 10px rgba(124, 58, 237, 0.5);
+  box-shadow: 0 0 14px rgba(0, 255, 102, 0.5);
 }
 
 .ceg-btn-inspect.active {
   background: #059669 !important;
   border-color: #00ff66 !important;
   color: #ffffff !important;
-  box-shadow: 0 0 14px rgba(0, 255, 102, 0.6) !important;
+  box-shadow: 0 0 16px rgba(0, 255, 102, 0.7) !important;
 }
 
 .ceg-btn-close {
@@ -145,17 +198,17 @@ body.ceg-inspecting .ceg-bar-handle {
   line-height: 1;
 }
 
-/* 4. Tray / Drawer */
+/* 6. Tray / Drawer */
 .ceg-drawer {
   position: fixed;
   bottom: 80px;
   right: 24px;
-  width: 320px;
+  width: 330px;
   max-height: 480px;
   background: #18181b;
   border: 1px solid #3f3f46;
   border-radius: 16px;
-  box-shadow: 0 12px 40px rgba(0, 0, 0, 0.5);
+  box-shadow: 0 12px 40px rgba(0, 0, 0, 0.55);
   z-index: 2147483646;
   display: flex;
   flex-direction: column;
@@ -247,7 +300,7 @@ body.ceg-inspecting .ceg-bar-handle {
 }
 
 .ceg-item-card:hover {
-  border-color: #8b5cf6;
+  border-color: #00ff66;
 }
 
 .ceg-item-thumb {
@@ -281,7 +334,7 @@ body.ceg-inspecting .ceg-bar-handle {
 
 .ceg-item-badge {
   font-size: 10px;
-  color: #a78bfa;
+  color: #34d399;
   margin-top: 2px;
 }
 
@@ -311,27 +364,27 @@ body.ceg-inspecting .ceg-bar-handle {
 }
 
 .ceg-btn-primary {
-  background: #7c3aed;
-  border-color: #8b5cf6;
+  background: #059669;
+  border-color: #00ff66;
   color: #ffffff;
 }
 
 .ceg-btn-primary:hover {
-  background: #6d28d9;
+  background: #047857;
 }
 
-/* 5. Toast Notifications */
+/* 7. Toast Notifications */
 .ceg-toast {
   position: fixed;
-  top: 24px;
+  top: 70px;
   left: 50%;
   transform: translateX(-50%);
   z-index: 2147483647;
   padding: 10px 18px;
-  background: #18181b;
+  background: #09090b;
   color: #ffffff;
-  border: 1px solid #8b5cf6;
-  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.4);
+  border: 1px solid #00ff66;
+  box-shadow: 0 8px 24px rgba(0, 255, 102, 0.35);
   border-radius: 30px;
   font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
   font-size: 13px;
@@ -343,6 +396,7 @@ body.ceg-inspecting .ceg-bar-handle {
 
 .ceg-toast-error {
   border-color: #ef4444;
+  box-shadow: 0 8px 24px rgba(239, 68, 68, 0.4);
 }
 
 .ceg-toast-fadeout {
@@ -357,5 +411,16 @@ body.ceg-inspecting .ceg-bar-handle {
   to {
     opacity: 1;
     transform: translate(-50%, 0);
+  }
+}
+
+@keyframes ceg-pulse {
+  0%, 100% {
+    opacity: 1;
+    transform: scale(1);
+  }
+  50% {
+    opacity: 0.5;
+    transform: scale(0.85);
   }
 }

@@ -1,14 +1,16 @@
 /**
  * Canva Element Grabber & Inserter - Content Script
- * Allows inspecting and grabbing elements from Canva's sidebar and inserting or dragging them onto the canvas.
  */
 
 (function () {
   // Prevent duplicate injection
-  if (window.__CANVA_ELEMENT_GRABBER_INITIALIZED__) return;
+  if (window.__CANVA_ELEMENT_GRABBER_INITIALIZED__) {
+    console.log('Canva Element Grabber already initialized.');
+    return;
+  }
   window.__CANVA_ELEMENT_GRABBER_INITIALIZED__ = true;
 
-  console.log('Canva Element Grabber initialized.');
+  console.log('Canva Element Grabber initialized on page.');
 
   // State
   let isInspectorActive = false;
@@ -28,18 +30,17 @@
   let tooltipEl = null;
   let floatingBarEl = null;
   let drawerEl = null;
+  let topBannerEl = null;
 
   // Initialize UI components
   createUI();
 
   // Listen for keyboard shortcuts
   window.addEventListener('keydown', (e) => {
-    // Alt + G toggles inspect mode
     if (e.altKey && (e.key === 'g' || e.key === 'G')) {
       e.preventDefault();
       toggleInspector();
     }
-    // Escape exits inspect mode
     if (e.key === 'Escape' && isInspectorActive) {
       e.preventDefault();
       setInspectorActive(false);
@@ -48,36 +49,57 @@
 
   // Listen for messages from popup
   chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
+    if (request.action === 'PING') {
+      sendResponse({ success: true, pong: true });
+      return false;
+    }
+
     if (request.action === 'TOGGLE_INSPECT') {
       const active = request.active !== undefined ? request.active : !isInspectorActive;
       setInspectorActive(active);
       sendResponse({ success: true, active: isInspectorActive });
-    } else if (request.action === 'GET_STATUS') {
+      return false;
+    }
+
+    if (request.action === 'GET_STATUS') {
       sendResponse({
+        success: true,
         isInspectorActive,
         autoInsert,
-        grabbedCount: grabbedElements.length
+        grabbedCount: grabbedElements.length,
+        latestItem: grabbedElements[0] || null
       });
-    } else if (request.action === 'SET_AUTO_INSERT') {
+      return false;
+    }
+
+    if (request.action === 'SET_AUTO_INSERT') {
       autoInsert = !!request.enabled;
       chrome.storage.local.set({ autoInsert });
       updateAutoInsertUI();
       sendResponse({ success: true });
-    } else if (request.action === 'INSERT_ITEM') {
-      const item = grabbedElements.find(i => i.id === request.id);
+      return false;
+    }
+
+    if (request.action === 'INSERT_ITEM') {
+      const item = grabbedElements.find(i => i.id === request.id) || request.item;
       if (item) {
         insertAssetToCanvas(item);
         sendResponse({ success: true });
       } else {
         sendResponse({ success: false, error: 'Item not found' });
       }
-    } else if (request.action === 'CLEAR_ITEMS') {
+      return false;
+    }
+
+    if (request.action === 'CLEAR_ITEMS') {
       grabbedElements = [];
       chrome.storage.local.set({ grabbedElements: [] });
       renderDrawerItems();
       sendResponse({ success: true });
+      return false;
     }
-    return true;
+
+    return false;
   });
 
   /**
@@ -95,7 +117,19 @@
     overlayEl.appendChild(tooltipEl);
     document.body.appendChild(overlayEl);
 
-    // 2. Floating Toolbar
+    // 2. Top notification banner when active
+    topBannerEl = document.createElement('div');
+    topBannerEl.className = 'ceg-top-banner';
+    topBannerEl.style.display = 'none';
+    topBannerEl.innerHTML = `
+      <div class="ceg-pulse-dot"></div>
+      <span>🟢 <b>Element Grabber Active:</b> Click any graphic to grab it</span>
+      <button class="ceg-banner-exit-btn" id="ceg-banner-exit-btn">Exit (Esc)</button>
+    `;
+    document.body.appendChild(topBannerEl);
+    topBannerEl.querySelector('#ceg-banner-exit-btn').addEventListener('click', () => setInspectorActive(false));
+
+    // 3. Floating Toolbar
     floatingBarEl = document.createElement('div');
     floatingBarEl.className = 'ceg-floating-bar';
     floatingBarEl.innerHTML = `
@@ -133,7 +167,7 @@
     // Make floating bar draggable
     makeDraggable(floatingBarEl, floatingBarEl.querySelector('.ceg-bar-handle'));
 
-    // 3. Tray / Drawer UI
+    // 4. Tray / Drawer UI
     drawerEl = document.createElement('div');
     drawerEl.className = 'ceg-drawer';
     drawerEl.style.display = 'none';
@@ -201,19 +235,27 @@
 
     if (active) {
       btn?.classList.add('active');
+      document.documentElement.classList.add('ceg-inspecting');
       document.body.classList.add('ceg-inspecting');
-      showToast('🎯 Inspect Mode Active: Hover & click any graphic to grab it (Esc to exit)');
+      if (topBannerEl) topBannerEl.style.display = 'flex';
+
+      showToast('🟢 Inspector Active: Green cursor enabled. Click any graphic! (Esc to exit)');
       window.addEventListener('mousemove', handleMouseMove, true);
       window.addEventListener('click', handleClick, true);
     } else {
       btn?.classList.remove('active');
+      document.documentElement.classList.remove('ceg-inspecting');
       document.body.classList.remove('ceg-inspecting');
-      overlayEl.style.display = 'none';
+      if (topBannerEl) topBannerEl.style.display = 'none';
+      if (overlayEl) overlayEl.style.display = 'none';
+
       window.removeEventListener('mousemove', handleMouseMove, true);
       window.removeEventListener('click', handleClick, true);
     }
 
-    chrome.runtime.sendMessage({ action: 'UPDATE_BADGE', active });
+    try {
+      chrome.runtime.sendMessage({ action: 'UPDATE_BADGE', active });
+    } catch (e) {}
   }
 
   function toggleDrawer() {
@@ -232,7 +274,7 @@
     if (!isInspectorActive) return;
 
     // Ignore extension UI
-    if (e.target.closest('.ceg-floating-bar') || e.target.closest('.ceg-drawer') || e.target.closest('.ceg-highlight-overlay')) {
+    if (e.target.closest('.ceg-floating-bar') || e.target.closest('.ceg-drawer') || e.target.closest('.ceg-highlight-overlay') || e.target.closest('.ceg-top-banner')) {
       overlayEl.style.display = 'none';
       return;
     }
@@ -259,7 +301,7 @@
     let typeName = 'Graphic';
     if (tag === 'svg' || target.querySelector('svg')) typeName = 'Vector SVG';
     else if (tag === 'img' || target.querySelector('img')) typeName = 'Image (PNG/JPG)';
-    tooltipEl.innerText = `🎯 Grab ${typeName} (${Math.round(rect.width)}×${Math.round(rect.height)})`;
+    tooltipEl.innerText = `🎯 Click to Grab ${typeName} (${Math.round(rect.width)}×${Math.round(rect.height)})`;
   }
 
   /**
@@ -269,7 +311,7 @@
     if (!isInspectorActive) return;
 
     // Ignore clicks on our UI
-    if (e.target.closest('.ceg-floating-bar') || e.target.closest('.ceg-drawer') || e.target.closest('.ceg-highlight-overlay')) {
+    if (e.target.closest('.ceg-floating-bar') || e.target.closest('.ceg-drawer') || e.target.closest('.ceg-highlight-overlay') || e.target.closest('.ceg-top-banner')) {
       return;
     }
 
@@ -295,9 +337,6 @@
    */
   function findGraphicTarget(el) {
     if (!el || el === document.body || el === document.documentElement) return null;
-
-    // Check if element is in the canvas container
-    const isInsideCanvas = !!el.closest('[data-testid="canvas-container"], [data-testid="page-container"], canvas');
 
     // 1. Direct SVG or Image
     if (el.tagName === 'IMG' || el.tagName === 'SVG' || el.tagName === 'svg') {
@@ -335,7 +374,6 @@
       const tag = target.tagName.toLowerCase();
 
       if (tag === 'svg') {
-        // Serialized SVG
         const svgString = new XMLSerializer().serializeToString(target);
         const encoded = 'data:image/svg+xml;charset=utf-8,' + encodeURIComponent(svgString);
         assetData = {
@@ -346,13 +384,11 @@
           rawSvg: svgString
         };
       } else if (tag === 'img') {
-        // Image element
         let src = target.currentSrc || target.src || target.getAttribute('srcset') || target.getAttribute('data-src');
         if (target.srcset) {
           src = pickHighestResSrcset(target.srcset) || src;
         }
 
-        // Clean Canva thumbnail query parameters to request highest resolution
         const cleanUrl = cleanCanvaImageUrl(src);
         const fetched = await fetchViaBackground(cleanUrl);
         assetData = {
@@ -362,7 +398,6 @@
           type: fetched.mimeType.includes('svg') ? 'svg' : 'image'
         };
       } else {
-        // Check background image
         const bg = window.getComputedStyle(target).backgroundImage;
         const match = bg.match(/url\(["']?([^"']+)["']?\)/);
         if (match && match[1]) {
@@ -387,23 +422,31 @@
         mimeType: assetData.mimeType || 'image/png',
         title: assetData.title || 'Canva Graphic',
         type: assetData.type || 'image',
-        timestamp: Date.now(),
-        rawSvg: assetData.rawSvg || null
+        timestamp: Date.now()
       };
 
       // Add to beginning of grabbed list
       grabbedElements.unshift(item);
-      if (grabbedElements.length > 50) grabbedElements.pop(); // Keep max 50
-      chrome.storage.local.set({ grabbedElements });
-      renderDrawerItems();
+      if (grabbedElements.length > 50) grabbedElements.pop();
 
+      // Store locally
+      chrome.storage.local.set({
+        grabbedElements,
+        latestGrabbed: item
+      });
+
+      // Broadcast to popup if open
+      try {
+        chrome.runtime.sendMessage({ action: 'ITEM_GRABBED', item });
+      } catch (e) {}
+
+      renderDrawerItems();
       showToast(`✨ Successfully grabbed "${item.title}"!`);
 
       // If auto-insert is enabled, insert directly onto Canva's page!
       if (autoInsert) {
         await insertAssetToCanvas(item);
       } else {
-        // Automatically reveal drawer so user sees their new grabbed item
         drawerEl.style.display = 'flex';
       }
 
@@ -413,18 +456,12 @@
     }
   }
 
-  /**
-   * Cleans Canva thumbnail URLs to request the original high-resolution version
-   */
   function cleanCanvaImageUrl(url) {
     if (!url) return url;
     try {
       const parsed = new URL(url, window.location.href);
-
-      // Many Canva CDN URLs have resize parameters like ?fit=contain&w=150&h=150
-      // We can either remove width/height constraints or boost them
       if (parsed.searchParams.has('w')) {
-        parsed.searchParams.set('w', '2400'); // Request high-res
+        parsed.searchParams.set('w', '2400');
       }
       if (parsed.searchParams.has('h')) {
         parsed.searchParams.set('h', '2400');
@@ -432,16 +469,12 @@
       if (parsed.searchParams.has('quality')) {
         parsed.searchParams.set('quality', '100');
       }
-
       return parsed.toString();
     } catch {
       return url;
     }
   }
 
-  /**
-   * Pick highest res candidate from srcset string
-   */
   function pickHighestResSrcset(srcset) {
     try {
       const candidates = srcset.split(',').map(s => {
@@ -462,9 +495,6 @@
     }
   }
 
-  /**
-   * Request asset via background script to bypass CORS
-   */
   function fetchViaBackground(url) {
     return new Promise((resolve, reject) => {
       chrome.runtime.sendMessage({ action: 'FETCH_ASSET', url }, (response) => {
@@ -481,26 +511,23 @@
 
   /**
    * Insert Asset directly into Canva Canvas
-   * Emulates native user drag-drop and clipboard paste
    */
   async function insertAssetToCanvas(item) {
     showToast('🚀 Injecting onto canvas...');
 
     try {
-      // 1. Convert DataURL to File Blob
       const blob = await dataUrlToBlob(item.dataUrl, item.mimeType);
       const ext = item.mimeType.includes('svg') ? 'svg' : 'png';
       const fileName = `graphic_${Date.now()}.${ext}`;
       const file = new File([blob], fileName, { type: item.mimeType });
 
-      // 2. Find target canvas artboard container in Canva DOM
       const targetCanvas = findCanvaCanvas();
+      const dropTarget = targetCanvas || document.body;
 
-      // 3. Method A: Synthesize native Drag and Drop Event
+      // Method A: DataTransfer Drop Simulation
       const dataTransfer = new DataTransfer();
       dataTransfer.items.add(file);
 
-      const dropTarget = targetCanvas || document.body;
       const rect = dropTarget.getBoundingClientRect();
       const clientX = rect.left + rect.width / 2;
       const clientY = rect.top + rect.height / 2;
@@ -518,9 +545,9 @@
 
       dropTarget.dispatchEvent(new DragEvent('dragenter', eventInit));
       dropTarget.dispatchEvent(new DragEvent('dragover', eventInit));
-      const dropped = dropTarget.dispatchEvent(new DragEvent('drop', eventInit));
+      dropTarget.dispatchEvent(new DragEvent('drop', eventInit));
 
-      // 4. Method B: Synthesize Clipboard Paste Event (Canva also listens to paste)
+      // Method B: Synthetic Clipboard Paste
       const pasteDataTransfer = new DataTransfer();
       pasteDataTransfer.items.add(file);
 
@@ -535,27 +562,22 @@
       activeEl.dispatchEvent(pasteEvent);
       document.dispatchEvent(pasteEvent);
 
-      // 5. Method C: Copy to native clipboard so user can also just hit Ctrl+V if browser blocks synthetic paste
+      // Method C: Copy to native clipboard
       try {
         if (navigator.clipboard && navigator.clipboard.write && item.mimeType.includes('png')) {
           await navigator.clipboard.write([
             new ClipboardItem({ 'image/png': blob })
           ]);
         }
-      } catch (clipErr) {
-        // Clipboard write can fail if not focused, non-fatal
-      }
+      } catch (clipErr) {}
 
-      showToast('🎉 Element placed onto canvas! (If needed, press Ctrl+V to paste)');
+      showToast('🎉 Element placed onto canvas! (Or press Ctrl+V)');
     } catch (err) {
       console.error('Failed to insert into canvas:', err);
-      showToast('⚠️ Direct drop simulated. You can also drag it from the Tray onto the canvas!', 'info');
+      showToast('⚠️ Dropped simulated. You can also drag it from the Tray onto canvas!', 'info');
     }
   }
 
-  /**
-   * Find Canva's canvas / page editor element
-   */
   function findCanvaCanvas() {
     const selectors = [
       '[data-testid="canvas-container"]',
@@ -574,17 +596,11 @@
     return document.querySelector('main') || document.body;
   }
 
-  /**
-   * Convert Data URL to Blob
-   */
   async function dataUrlToBlob(dataUrl, defaultMime = 'image/png') {
     const res = await fetch(dataUrl);
     return await res.blob();
   }
 
-  /**
-   * Render items inside the floating Grabbed Drawer
-   */
   function renderDrawerItems() {
     const listEl = document.getElementById('ceg-drawer-list');
     const countEl = document.getElementById('ceg-drawer-count');
@@ -607,7 +623,6 @@
       const card = document.createElement('div');
       card.className = 'ceg-item-card';
 
-      // Draggable thumbnail
       const img = document.createElement('img');
       img.src = item.dataUrl;
       img.alt = item.title;
@@ -615,7 +630,6 @@
       img.className = 'ceg-item-thumb';
       img.title = 'Drag me directly onto the Canva canvas!';
 
-      // Setup native HTML5 Drag and Drop from drawer onto Canva canvas
       img.addEventListener('dragstart', async (e) => {
         try {
           const blob = await dataUrlToBlob(item.dataUrl, item.mimeType);
@@ -639,14 +653,12 @@
       const actions = document.createElement('div');
       actions.className = 'ceg-item-actions';
 
-      // Insert button
       const insertBtn = document.createElement('button');
       insertBtn.className = 'ceg-btn-sm ceg-btn-primary';
       insertBtn.innerText = 'Insert';
       insertBtn.title = 'Insert directly onto canvas';
       insertBtn.addEventListener('click', () => insertAssetToCanvas(item));
 
-      // Download button
       const downloadBtn = document.createElement('button');
       downloadBtn.className = 'ceg-btn-sm';
       downloadBtn.innerHTML = `
@@ -679,9 +691,6 @@
     showToast('💾 Downloading file...');
   }
 
-  /**
-   * Toast notification helper
-   */
   function showToast(message, type = 'info') {
     const existing = document.querySelector('.ceg-toast');
     if (existing) existing.remove();
@@ -697,9 +706,6 @@
     }, 3200);
   }
 
-  /**
-   * Helper to make floating element draggable on screen
-   */
   function makeDraggable(el, handle) {
     let pos1 = 0, pos2 = 0, pos3 = 0, pos4 = 0;
     (handle || el).onmousedown = dragMouseDown;

@@ -1,12 +1,14 @@
 {
   "manifest_version": 3,
   "name": "Canva Element Grabber & Inserter",
-  "version": "1.0.0",
+  "version": "1.0.1",
   "description": "Inspect and grab any graphic or element directly from Canva's sidebar and drop or insert it right onto your canvas page.",
   "permissions": [
     "activeTab",
     "storage",
-    "clipboardWrite"
+    "clipboardWrite",
+    "scripting",
+    "tabs"
   ],
   "host_permissions": [
     "https://*.canva.com/*",
@@ -24,6 +26,12 @@
       "js": ["content.js"],
       "css": ["content.css"],
       "run_at": "document_end"
+    }
+  ],
+  "web_accessible_resources": [
+    {
+      "resources": ["icons/*", "content.css"],
+      "matches": ["https://*.canva.com/*"]
     }
   ],
   "action": {
