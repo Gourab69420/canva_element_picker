@@ -540,7 +540,14 @@
         }
 
         const cleanUrl = cleanCanvaImageUrl(src);
-        const fetched = await fetchViaBackground(cleanUrl);
+        let fetched;
+        try {
+          fetched = await fetchViaBackground(cleanUrl);
+        } catch (fetchErr) {
+          console.warn('Optimized fetch failed, falling back to original src:', fetchErr);
+          fetched = await fetchViaBackground(src);
+        }
+
         assetData = {
           ...fetched,
           url: cleanUrl,
@@ -552,7 +559,12 @@
         const match = bg.match(/url\(["']?([^"']+)["']?\)/);
         if (match && match[1]) {
           const cleanUrl = cleanCanvaImageUrl(match[1]);
-          const fetched = await fetchViaBackground(cleanUrl);
+          let fetched;
+          try {
+            fetched = await fetchViaBackground(cleanUrl);
+          } catch (fetchErr) {
+            fetched = await fetchViaBackground(match[1]);
+          }
           assetData = {
             ...fetched,
             url: cleanUrl,
@@ -611,8 +623,18 @@
     try {
       const parsed = new URL(url, window.location.href);
 
+      // If it's a signed URL (AWS / Canva security token or signature), keep query params intact!
+      const isSigned = parsed.searchParams.has('X-Amz-Signature') ||
+                       parsed.searchParams.has('signature') ||
+                       parsed.searchParams.has('Signature') ||
+                       parsed.searchParams.has('token') ||
+                       parsed.searchParams.has('exp');
+
+      if (isSigned) {
+        return url;
+      }
+
       // FOR SVGs: DO NOT add raster resize query parameters!
-      // Adding w=2400 to an SVG CDN endpoint causes Canva's server to return 400 or empty!
       if (parsed.pathname.endsWith('.svg') || url.includes('.svg?')) {
         parsed.searchParams.delete('w');
         parsed.searchParams.delete('h');
@@ -635,6 +657,32 @@
     } catch {
       return url;
     }
+  }
+
+  /**
+   * Convert SVG to a high-res PNG blob for Canva paste compatibility
+   */
+  function svgToPngBlob(svgDataUrl) {
+    return new Promise((resolve) => {
+      const img = new Image();
+      img.onload = () => {
+        try {
+          const canvas = document.createElement('canvas');
+          const w = img.naturalWidth || 800;
+          const h = img.naturalHeight || 800;
+          const scale = Math.max(1, Math.min(3, 2400 / Math.max(w, h)));
+          canvas.width = Math.round(w * scale);
+          canvas.height = Math.round(h * scale);
+          const ctx = canvas.getContext('2d');
+          ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
+          canvas.toBlob((blob) => resolve(blob), 'image/png', 1.0);
+        } catch (e) {
+          resolve(null);
+        }
+      };
+      img.onerror = () => resolve(null);
+      img.src = svgDataUrl;
+    });
   }
 
   function pickHighestResSrcset(srcset) {
@@ -673,13 +721,12 @@
 
   /**
    * Insert Asset directly into Canva Canvas
-   * Emulates native user drag-drop (single event with debounce to prevent duplicates)
+   * Dispatches exactly one paste event onto Canva's editor
    */
   let lastInsertTimestamp = 0;
   async function insertAssetToCanvas(item) {
     const now = Date.now();
-    if (now - lastInsertTimestamp < 800) {
-      console.log('Skipping duplicate insert within 800ms');
+    if (now - lastInsertTimestamp < 400) {
       return;
     }
     lastInsertTimestamp = now;
@@ -687,40 +734,59 @@
     showToast('🚀 Injecting onto canvas...');
 
     try {
-      const blob = await dataUrlToBlob(item.dataUrl, item.mimeType);
-      const ext = item.mimeType.includes('svg') ? 'svg' : 'png';
+      let blob = await dataUrlToBlob(item.dataUrl, item.mimeType);
+      let mimeType = item.mimeType;
+      let ext = mimeType.includes('svg') ? 'svg' : 'png';
+
+      // If SVG, generate a high-res PNG blob for Canva paste engine compatibility
+      if (mimeType.includes('svg')) {
+        try {
+          const pngBlob = await svgToPngBlob(item.dataUrl);
+          if (pngBlob) {
+            blob = pngBlob;
+            mimeType = 'image/png';
+            ext = 'png';
+          }
+        } catch (convErr) {
+          console.warn('SVG-to-PNG fallback skipped:', convErr);
+        }
+      }
+
       const fileName = `graphic_${Date.now()}.${ext}`;
-      const file = new File([blob], fileName, { type: item.mimeType });
+      const file = new File([blob], fileName, { type: mimeType });
 
+      // Blur search box / active inputs so paste goes directly to Canva's editor
+      if (document.activeElement && (document.activeElement.tagName === 'INPUT' || document.activeElement.tagName === 'TEXTAREA' || document.activeElement.isContentEditable)) {
+        document.activeElement.blur();
+      }
+
+      // Focus canvas container if present
       const targetCanvas = findCanvaCanvas();
-      const dropTarget = targetCanvas || document.body;
+      if (targetCanvas && targetCanvas.focus) {
+        try { targetCanvas.focus(); } catch (e) {}
+      }
 
-      // SINGLE Method: DataTransfer Drop Simulation (never fire paste simultaneously)
+      // Build DataTransfer containing the image file
       const dataTransfer = new DataTransfer();
       dataTransfer.items.add(file);
+      try {
+        dataTransfer.setData('text/plain', item.dataUrl);
+        dataTransfer.setData('text/uri-list', item.dataUrl);
+        dataTransfer.setData('text/html', `<img src="${item.dataUrl}">`);
+      } catch (e) {}
 
-      const rect = dropTarget.getBoundingClientRect();
-      const clientX = rect.left + rect.width / 2;
-      const clientY = rect.top + rect.height / 2;
-
-      const eventInit = {
+      // Dispatch paste event ONCE to document (Canva's paste listener)
+      const pasteEvent = new ClipboardEvent('paste', {
         bubbles: true,
         cancelable: true,
         composed: true,
-        dataTransfer: dataTransfer,
-        clientX,
-        clientY,
-        screenX: clientX,
-        screenY: clientY
-      };
+        clipboardData: dataTransfer
+      });
+      document.dispatchEvent(pasteEvent);
 
-      dropTarget.dispatchEvent(new DragEvent('dragenter', eventInit));
-      dropTarget.dispatchEvent(new DragEvent('dragover', eventInit));
-      dropTarget.dispatchEvent(new DragEvent('drop', eventInit));
-
-      // Also copy to native clipboard so user can press Ctrl+V manually if desired
+      // Also copy to native system clipboard
       try {
-        if (navigator.clipboard && navigator.clipboard.write && item.mimeType.includes('png')) {
+        if (navigator.clipboard && navigator.clipboard.write && mimeType === 'image/png') {
           await navigator.clipboard.write([
             new ClipboardItem({ 'image/png': blob })
           ]);
@@ -730,7 +796,7 @@
       showToast('🎉 Element placed onto canvas!');
     } catch (err) {
       console.error('Failed to insert into canvas:', err);
-      showToast('⚠️ Drop simulated. You can also drag it from the Tray onto canvas!', 'info');
+      showToast('⚠️ Placed in Tray. Drag it directly onto canvas or press Ctrl+V!', 'info');
     }
   }
 
