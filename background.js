@@ -1,5 +1,6 @@
 // Background service worker for Canva Element Grabber & Inserter
 
+// Auto-inject content scripts into open Canva tabs on install or reload
 chrome.runtime.onInstalled.addListener(async () => {
   console.log('Canva Element Grabber extension installed/reloaded.');
   chrome.storage.local.set({
@@ -11,6 +12,7 @@ chrome.runtime.onInstalled.addListener(async () => {
   injectIntoExistingTabs();
 });
 
+// Also inject when service worker starts up
 injectIntoExistingTabs();
 
 async function injectIntoExistingTabs() {
@@ -27,21 +29,24 @@ async function injectIntoExistingTabs() {
             target: { tabId: tab.id },
             files: ['content.js']
           });
-        } catch (e) {}
+          console.log(`Injected into tab: ${tab.id}`);
+        } catch (e) {
+          // Tab might be restricted or loading
+        }
       }
     }
-  } catch (err) {}
+  } catch (err) {
+    console.warn('Tab query error during injection:', err);
+  }
 }
 
+// Handle messages from content scripts and popup
 chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
   if (request.action === 'FETCH_ASSET') {
     handleFetchAsset(request.url)
       .then(result => sendResponse({ success: true, ...result }))
-      .catch(error => {
-        console.warn('Background fetch error for', request.url, error.message);
-        sendResponse({ success: false, error: error.message });
-      });
-    return true; // Keep channel open for async response
+      .catch(error => sendResponse({ success: false, error: error.message }));
+    return true; // Keep channel open for async fetch
   }
 
   if (request.action === 'UPDATE_BADGE') {
@@ -63,48 +68,36 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
 });
 
 /**
- * Fetch asset with extension host permissions
- * Uses standard CORS fetch so CDNs with Access-Control-Allow-Origin: * succeed immediately
+ * Fetch asset with extension privileges to bypass CORS restrictions
  */
 async function handleFetchAsset(url) {
   try {
-    let response;
-
-    // Strategy 1: Standard fetch (compatible with wildcard CDNs)
-    try {
-      response = await fetch(url, { cache: 'force-cache' });
-    } catch (err) {
-      // Strategy 2: If standard fails, try with credentials
-      response = await fetch(url, { credentials: 'include', cache: 'force-cache' });
-    }
+    const response = await fetch(url, {
+      mode: 'cors',
+      cache: 'force-cache'
+    });
 
     if (!response.ok) {
-      // If 401/403, retry with credentials
-      if (response.status === 401 || response.status === 403) {
-        response = await fetch(url, { credentials: 'include', cache: 'force-cache' });
-      }
-      if (!response.ok) {
-        throw new Error(`HTTP error! status: ${response.status}`);
-      }
+      throw new Error(`HTTP error! status: ${response.status}`);
     }
 
     const contentType = response.headers.get('content-type') || 'image/png';
-    const arrayBuffer = await response.arrayBuffer();
-    const bytes = new Uint8Array(arrayBuffer);
-    let binary = '';
-    const len = bytes.byteLength;
-    for (let i = 0; i < len; i += 8192) {
-      binary += String.fromCharCode.apply(null, bytes.subarray(i, Math.min(i + 8192, len)));
-    }
-    const base64 = btoa(binary);
-    const dataUrl = `data:${contentType};base64,${base64}`;
+    const blob = await response.blob();
 
-    return {
-      dataUrl,
-      mimeType: contentType,
-      size: arrayBuffer.byteLength
-    };
+    return new Promise((resolve, reject) => {
+      const reader = new FileReader();
+      reader.onloadend = () => {
+        resolve({
+          dataUrl: reader.result,
+          mimeType: contentType,
+          size: blob.size
+        });
+      };
+      reader.onerror = reject;
+      reader.readAsDataURL(blob);
+    });
   } catch (err) {
+    console.error('Failed to fetch asset in background:', err);
     throw err;
   }
 }

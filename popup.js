@@ -10,14 +10,12 @@ document.addEventListener('DOMContentLoaded', async () => {
   const itemCount = document.getElementById('item-count');
   const clearAllBtn = document.getElementById('clear-all-btn');
 
-  // Selected element card elements
-  const selectedCard = document.getElementById('selected-card');
+  // Selected element card
   const selectedEmpty = document.getElementById('selected-empty');
   const selectedContent = document.getElementById('selected-content');
   const selectedPreviewImg = document.getElementById('selected-preview-img');
   const selectedTitle = document.getElementById('selected-title');
   const selectedType = document.getElementById('selected-type');
-  const selectedTime = document.getElementById('selected-time');
   const btnInsertSelected = document.getElementById('btn-insert-selected');
   const btnCopySelected = document.getElementById('btn-copy-selected');
   const btnDownloadSelected = document.getElementById('btn-download-selected');
@@ -25,140 +23,120 @@ document.addEventListener('DOMContentLoaded', async () => {
   let activeTab = null;
   let isCanva = false;
   let isInspectorActive = false;
-  let currentSelectedItem = null;
+  let currentItem = null;
 
-  // 1. Get active tab
   try {
     const tabs = await chrome.tabs.query({ active: true, currentWindow: true });
     activeTab = tabs[0];
-  } catch (e) {
-    console.error(e);
-  }
+  } catch (e) {}
 
   if (activeTab && activeTab.url && activeTab.url.includes('canva.com')) {
     isCanva = true;
     statusBadge.textContent = 'Canva Connected';
     statusBadge.classList.add('connected');
 
-    // Ensure content script is ready in this tab
-    await ensureContentScriptInjected(activeTab.id);
+    // Ensure content script is running
+    await ensureInjected(activeTab.id);
 
     // Query status
-    sendMessageSafe(activeTab.id, { action: 'GET_STATUS' }, (res) => {
+    chrome.tabs.sendMessage(activeTab.id, { action: 'GET_STATUS' }, (res) => {
+      if (chrome.runtime.lastError) return;
       if (res && res.success) {
         isInspectorActive = res.isInspectorActive;
         autoInsertToggle.checked = res.autoInsert;
-        updateInspectorBtnUI();
-        if (res.latestItem) {
-          showSelectedItem(res.latestItem);
-        }
+        updateInspectBtn();
+        if (res.latestItem) showSelected(res.latestItem);
       }
     });
   } else {
     statusBadge.textContent = 'Open Canva First';
     inspectBtn.disabled = true;
     inspectBtn.style.opacity = '0.5';
-    inspectBtn.style.cursor = 'not-allowed';
   }
 
-  // 2. Load stored items and listen to changes
-  loadStoredData();
+  // Load stored data
+  loadStored();
 
   chrome.storage.onChanged.addListener((changes, area) => {
     if (area === 'local') {
-      if (changes.grabbedElements) {
-        renderHistoryList(changes.grabbedElements.newValue || []);
-      }
-      if (changes.latestGrabbed && changes.latestGrabbed.newValue) {
-        showSelectedItem(changes.latestGrabbed.newValue);
-      }
-      if (changes.autoInsert !== undefined) {
-        autoInsertToggle.checked = changes.autoInsert.newValue;
-      }
+      if (changes.grabbedElements) renderHistory(changes.grabbedElements.newValue || []);
+      if (changes.latestGrabbed?.newValue) showSelected(changes.latestGrabbed.newValue);
+      if (changes.autoInsert !== undefined) autoInsertToggle.checked = changes.autoInsert.newValue;
     }
   });
 
-  // Listen for direct broadcast when an item is grabbed
   chrome.runtime.onMessage.addListener((msg) => {
     if (msg.action === 'ITEM_GRABBED' && msg.item) {
-      showSelectedItem(msg.item);
+      showSelected(msg.item);
     }
   });
 
-  // 3. Inspect Toggle Button
-  inspectBtn.addEventListener('click', async () => {
+  inspectBtn.onclick = async () => {
     if (!isCanva || !activeTab) return;
-
-    await ensureContentScriptInjected(activeTab.id);
-
-    const targetState = !isInspectorActive;
-    sendMessageSafe(activeTab.id, { action: 'TOGGLE_INSPECT', active: targetState }, (res) => {
+    await ensureInjected(activeTab.id);
+    chrome.tabs.sendMessage(activeTab.id, { action: 'TOGGLE_INSPECT' }, (res) => {
+      if (chrome.runtime.lastError) return;
       if (res && res.success) {
         isInspectorActive = res.active;
-        updateInspectorBtnUI();
+        updateInspectBtn();
       }
     });
-  });
+  };
 
-  // 4. Auto-Insert Switch
-  autoInsertToggle.addEventListener('change', () => {
+  autoInsertToggle.onchange = () => {
     const enabled = autoInsertToggle.checked;
     chrome.storage.local.set({ autoInsert: enabled });
     if (isCanva && activeTab) {
-      sendMessageSafe(activeTab.id, { action: 'SET_AUTO_INSERT', enabled });
+      chrome.tabs.sendMessage(activeTab.id, { action: 'SET_AUTO_INSERT', enabled }, () => {
+        void chrome.runtime.lastError;
+      });
     }
-  });
+  };
 
-  // 5. Clear All Button
-  clearAllBtn.addEventListener('click', () => {
-    chrome.storage.local.set({ grabbedElements: [], latestGrabbed: null }, () => {
-      loadStoredData();
-      hideSelectedItem();
-      if (isCanva && activeTab) {
-        sendMessageSafe(activeTab.id, { action: 'CLEAR_ITEMS' });
-      }
+  clearAllBtn.onclick = () => {
+    chrome.storage.local.set({ grabbedElements: [], latestGrabbed: null });
+    loadStored();
+    if (isCanva && activeTab) {
+      chrome.tabs.sendMessage(activeTab.id, { action: 'CLEAR_ITEMS' }, () => {
+        void chrome.runtime.lastError;
+      });
+    }
+  };
+
+  btnInsertSelected.onclick = () => {
+    if (!currentItem || !isCanva || !activeTab) return;
+    chrome.tabs.sendMessage(activeTab.id, { action: 'INSERT_ITEM', item: currentItem }, () => {
+      void chrome.runtime.lastError;
+      btnInsertSelected.textContent = '✓ Placed on Canvas!';
+      setTimeout(() => (btnInsertSelected.textContent = '⚡ Insert into Page'), 1500);
     });
-  });
+  };
 
-  // 6. Selected Item Action Buttons
-  btnInsertSelected.addEventListener('click', () => {
-    if (!currentSelectedItem || !isCanva || !activeTab) return;
-    sendMessageSafe(activeTab.id, { action: 'INSERT_ITEM', item: currentSelectedItem }, () => {
-      btnInsertSelected.innerHTML = '<span>✓ Placed on Canvas!</span>';
-      setTimeout(() => {
-        btnInsertSelected.innerHTML = '<span>⚡ Insert into Page</span>';
-      }, 1500);
-    });
-  });
-
-  btnCopySelected.addEventListener('click', async () => {
-    if (!currentSelectedItem) return;
+  btnCopySelected.onclick = async () => {
+    if (!currentItem) return;
     try {
-      const res = await fetch(currentSelectedItem.dataUrl);
+      const res = await fetch(currentItem.dataUrl);
       const blob = await res.blob();
-      if (navigator.clipboard && navigator.clipboard.write) {
-        await navigator.clipboard.write([
-          new ClipboardItem({ [currentSelectedItem.mimeType.includes('svg') ? 'image/svg+xml' : 'image/png']: blob })
-        ]);
-        btnCopySelected.textContent = '✓';
-        setTimeout(() => (btnCopySelected.textContent = '📋'), 1500);
-      }
-    } catch (e) {
-      console.warn('Copy failed', e);
-    }
-  });
+      await navigator.clipboard.write([new ClipboardItem({ 'image/png': blob })]);
+      btnCopySelected.textContent = '✓';
+      setTimeout(() => (btnCopySelected.textContent = '📋'), 1500);
+    } catch (e) {}
+  };
 
-  btnDownloadSelected.addEventListener('click', () => {
-    if (!currentSelectedItem) return;
+  btnDownloadSelected.onclick = () => {
+    if (!currentItem) return;
     const a = document.createElement('a');
-    a.href = currentSelectedItem.dataUrl;
-    const ext = currentSelectedItem.mimeType.includes('svg') ? 'svg' : 'png';
-    a.download = `canva_element_${Date.now()}.${ext}`;
+    if (currentItem.rawSvg) {
+      a.href = URL.createObjectURL(new Blob([currentItem.rawSvg], { type: 'image/svg+xml' }));
+      a.download = `shape_${Date.now()}.svg`;
+    } else {
+      a.href = currentItem.dataUrl;
+      a.download = `graphic_${Date.now()}.png`;
+    }
     a.click();
-  });
+  };
 
-  // Helper functions
-  function updateInspectorBtnUI() {
+  function updateInspectBtn() {
     if (isInspectorActive) {
       inspectBtn.classList.add('active');
       inspectIcon.textContent = '🟢';
@@ -170,99 +148,69 @@ document.addEventListener('DOMContentLoaded', async () => {
     }
   }
 
-  function showSelectedItem(item) {
+  function showSelected(item) {
     if (!item) return;
-    currentSelectedItem = item;
-
+    currentItem = item;
     selectedEmpty.style.display = 'none';
     selectedContent.style.display = 'flex';
-    selectedCard.classList.add('highlight');
-
     selectedPreviewImg.src = item.dataUrl;
     selectedTitle.textContent = item.title || 'Canva Graphic';
-    selectedType.textContent = item.mimeType.includes('svg') ? 'SVG Vector' : 'PNG Image';
-    selectedTime.textContent = 'Selected';
-
-    setTimeout(() => {
-      selectedCard.classList.remove('highlight');
-    }, 1500);
+    selectedType.textContent = item.type === 'svg' ? 'SVG Shape' : 'PNG Image';
   }
 
-  function hideSelectedItem() {
-    currentSelectedItem = null;
-    selectedEmpty.style.display = 'block';
-    selectedContent.style.display = 'none';
-  }
-
-  function loadStoredData() {
+  function loadStored() {
     chrome.storage.local.get(['grabbedElements', 'latestGrabbed', 'autoInsert'], (res) => {
-      if (res.autoInsert !== undefined) {
-        autoInsertToggle.checked = res.autoInsert;
+      if (res.autoInsert !== undefined) autoInsertToggle.checked = res.autoInsert;
+      if (res.latestGrabbed) showSelected(res.latestGrabbed);
+      else if (res.grabbedElements?.length) showSelected(res.grabbedElements[0]);
+      else {
+        selectedEmpty.style.display = 'block';
+        selectedContent.style.display = 'none';
+        currentItem = null;
       }
-      if (res.latestGrabbed) {
-        showSelectedItem(res.latestGrabbed);
-      } else if (res.grabbedElements && res.grabbedElements.length > 0) {
-        showSelectedItem(res.grabbedElements[0]);
-      } else {
-        hideSelectedItem();
-      }
-      renderHistoryList(res.grabbedElements || []);
+      renderHistory(res.grabbedElements || []);
     });
   }
 
-  function renderHistoryList(items) {
+  function renderHistory(items) {
     itemCount.textContent = items.length;
-
-    if (!items || items.length === 0) {
+    if (!items.length) {
       elementsList.innerHTML = '';
       return;
     }
-
     elementsList.innerHTML = '';
-    items.forEach((item) => {
+    items.forEach(item => {
       const row = document.createElement('div');
       row.className = 'element-item';
 
       const img = document.createElement('img');
       img.src = item.dataUrl;
-      img.alt = item.title;
 
-      const info = document.createElement('div');
-      info.className = 'element-item-info';
-      info.innerHTML = `
-        <div class="element-item-title">${escapeHtml(item.title)}</div>
-      `;
+      const title = document.createElement('div');
+      title.className = 'element-item-title';
+      title.textContent = item.title;
 
       const pickBtn = document.createElement('button');
       pickBtn.className = 'insert-item-btn';
       pickBtn.textContent = 'Select';
-      pickBtn.addEventListener('click', () => {
-        showSelectedItem(item);
-      });
+      pickBtn.onclick = () => showSelected(item);
 
       row.appendChild(img);
-      row.appendChild(info);
+      row.appendChild(title);
       row.appendChild(pickBtn);
-
       elementsList.appendChild(row);
     });
   }
 
-  /**
-   * Inject content script if not already present in tab
-   */
-  async function ensureContentScriptInjected(tabId) {
+  async function ensureInjected(tabId) {
     return new Promise((resolve) => {
       chrome.tabs.sendMessage(tabId, { action: 'PING' }, async (res) => {
         if (chrome.runtime.lastError || !res) {
-          // Not injected yet, inject now
           try {
             await chrome.scripting.insertCSS({ target: { tabId }, files: ['content.css'] });
             await chrome.scripting.executeScript({ target: { tabId }, files: ['content.js'] });
-            // Small wait for execution
-            setTimeout(resolve, 150);
-          } catch (err) {
-            console.error('Injection error:', err);
+            setTimeout(resolve, 120);
+          } catch (e) {
             resolve();
           }
         } else {
@@ -270,28 +218,5 @@ document.addEventListener('DOMContentLoaded', async () => {
         }
       });
     });
-  }
-
-  /**
-   * Send message safely without leaving unhandled port errors
-   */
-  function sendMessageSafe(tabId, message, callback) {
-    try {
-      chrome.tabs.sendMessage(tabId, message, (response) => {
-        const err = chrome.runtime.lastError;
-        if (err) {
-          console.warn('Message send notice:', err.message);
-        }
-        if (callback) callback(response);
-      });
-    } catch (e) {
-      console.warn('Send message error:', e);
-    }
-  }
-
-  function escapeHtml(text) {
-    const div = document.createElement('div');
-    div.innerText = text;
-    return div.innerHTML;
   }
 });
