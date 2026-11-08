@@ -1,7 +1,9 @@
 /**
- * Canva Element Grabber & Inserter - Native Canva Look (v2.2)
- * Injects seamless native buttons into the top bar (after backup icon) and bottom left.
- * Clean non-neon #5E50E2 outline and purple cursor.
+ * Canva Element Grabber & Inserter - Native Built-in Design System (v2.3)
+ * Seamlessly integrates into Canva:
+ * - Top navigation bar: Smooth Mouse / Grab mode toggle right after cloud backup icon.
+ * - Bottom right footer: Tray button placed in the middle of the Expandable button and Help (?) button.
+ * - Inside Tray: Auto-Drop toggle and "Auto-switch to Mouse Mode after 1 grab" setting.
  */
 
 (function () {
@@ -11,22 +13,23 @@
     try { window.__CANVA_GRABBER_CLEANUP__(); } catch (e) {}
   }
 
-  console.log('Canva Element Grabber v2.2 (Native Look) initializing...');
+  console.log('Canva Element Grabber v2.3 initializing...');
 
   // State
   let isInspectorActive = false;
   let autoInsert = true;
+  let autoSwitchToMouse = true; // Automatically toggle to mouse mode after 1 grab
   let currentTarget = null;
   let grabbedList = [];
   let isInserting = false;
 
-  // Load preferences
+  // Load stored preferences
   if (chrome.runtime?.id) {
-    chrome.storage.local.get(['autoInsert', 'grabbedElements'], (res) => {
+    chrome.storage.local.get(['autoInsert', 'autoSwitchToMouse', 'grabbedElements'], (res) => {
       if (res.autoInsert !== undefined) autoInsert = res.autoInsert;
+      if (res.autoSwitchToMouse !== undefined) autoSwitchToMouse = res.autoSwitchToMouse;
       if (res.grabbedElements) grabbedList = res.grabbedElements;
-      updateBottomLeftUI();
-      renderTray();
+      updateTrayUI();
     });
   }
 
@@ -40,7 +43,7 @@
   overlay.appendChild(tooltip);
   document.body.appendChild(overlay);
 
-  // 2. Create Bottom-Left Tray Drawer
+  // 2. Create Tray Drawer (Bottom Right)
   const trayDrawer = document.createElement('div');
   trayDrawer.className = 'ceg-ui-element ceg-tray-drawer';
   trayDrawer.style.display = 'none';
@@ -52,7 +55,22 @@
         <button class="ceg-tray-action" id="ceg-tray-close">✕</button>
       </div>
     </div>
-    <div class="ceg-tray-hint">💡 Drag any item onto the canvas, or click <b>Insert</b></div>
+    <div class="ceg-tray-settings">
+      <div class="ceg-setting-row">
+        <span class="ceg-setting-label">⚡ Auto-Drop to Canvas</span>
+        <label class="ceg-switch">
+          <input type="checkbox" id="ceg-setting-autodrop" ${autoInsert ? 'checked' : ''}>
+          <span class="ceg-slider"></span>
+        </label>
+      </div>
+      <div class="ceg-setting-row">
+        <span class="ceg-setting-label">🎯 Auto-switch to Mouse after 1 grab</span>
+        <label class="ceg-switch">
+          <input type="checkbox" id="ceg-setting-singlegrab" ${autoSwitchToMouse ? 'checked' : ''}>
+          <span class="ceg-slider"></span>
+        </label>
+      </div>
+    </div>
     <div class="ceg-tray-list" id="ceg-tray-list"></div>
   `;
   document.body.appendChild(trayDrawer);
@@ -61,19 +79,31 @@
   document.getElementById('ceg-tray-clear').onclick = () => {
     grabbedList = [];
     if (chrome.runtime?.id) chrome.storage.local.set({ grabbedElements: [], latestGrabbed: null });
-    renderTray();
-    updateBottomLeftUI();
+    renderTrayItems();
+    updateTrayBadge();
     showToast('Tray cleared');
   };
 
-  // 3. Inject Native Controls into Canva's DOM
-  ensureNativeControlsInjected();
+  document.getElementById('ceg-setting-autodrop').onchange = (e) => {
+    autoInsert = e.target.checked;
+    if (chrome.runtime?.id) chrome.storage.local.set({ autoInsert });
+    showToast(autoInsert ? '⚡ Auto-Drop ON' : '⚡ Auto-Drop OFF');
+  };
 
-  // Watch for Canva page changes or re-renders to keep buttons attached
-  const domObserver = new MutationObserver(() => {
-    ensureNativeControlsInjected();
+  document.getElementById('ceg-setting-singlegrab').onchange = (e) => {
+    autoSwitchToMouse = e.target.checked;
+    if (chrome.runtime?.id) chrome.storage.local.set({ autoSwitchToMouse });
+    showToast(autoSwitchToMouse ? '🎯 Single-Grab ON: Switches to mouse after grab' : '🎯 Continuous Grab ON');
+  };
+
+  // 3. Inject Native Controls into Canva's DOM
+  ensureNativeControls();
+
+  // MutationObserver to keep native buttons attached on navigation or re-renders
+  const observer = new MutationObserver(() => {
+    ensureNativeControls();
   });
-  domObserver.observe(document.body, { childList: true, subtree: true });
+  observer.observe(document.body, { childList: true, subtree: true });
 
   // Keyboard Shortcuts (Alt+G toggles grab mode, Esc exits)
   const onKeyDown = (e) => {
@@ -101,12 +131,20 @@
         success: true,
         isInspectorActive,
         autoInsert,
+        autoSwitchToMouse,
         latestItem: grabbedList[0] || null
       });
     } else if (req.action === 'SET_AUTO_INSERT') {
       autoInsert = !!req.enabled;
       if (chrome.runtime?.id) chrome.storage.local.set({ autoInsert });
-      updateBottomLeftUI();
+      const el = document.getElementById('ceg-setting-autodrop');
+      if (el) el.checked = autoInsert;
+      sendResponse({ success: true });
+    } else if (req.action === 'SET_SINGLE_GRAB') {
+      autoSwitchToMouse = !!req.enabled;
+      if (chrome.runtime?.id) chrome.storage.local.set({ autoSwitchToMouse });
+      const el = document.getElementById('ceg-setting-singlegrab');
+      if (el) el.checked = autoSwitchToMouse;
       sendResponse({ success: true });
     } else if (req.action === 'INSERT_ITEM') {
       const item = req.item || grabbedList.find(i => i.id === req.id);
@@ -115,8 +153,8 @@
     } else if (req.action === 'CLEAR_ITEMS') {
       grabbedList = [];
       if (chrome.runtime?.id) chrome.storage.local.set({ grabbedElements: [], latestGrabbed: null });
-      renderTray();
-      updateBottomLeftUI();
+      renderTrayItems();
+      updateTrayBadge();
       sendResponse({ success: true });
     }
     return false;
@@ -124,7 +162,7 @@
   chrome.runtime.onMessage.addListener(onMessage);
 
   window.__CANVA_GRABBER_CLEANUP__ = () => {
-    domObserver.disconnect();
+    observer.disconnect();
     window.removeEventListener('keydown', onKeyDown);
     chrome.runtime.onMessage.removeListener(onMessage);
     document.querySelectorAll('.ceg-ui-element').forEach(el => el.remove());
@@ -132,34 +170,38 @@
   };
 
   /**
-   * Inject Top Navigation Bar & Bottom Left Controls
+   * INJECT CONTROLS INTO CANVA DOM
    */
-  function ensureNativeControlsInjected() {
-    // A. Top Navigation Bar: Inject after backup/cloud button
-    if (!document.getElementById('ceg-top-controls')) {
-      injectTopBarControls();
-    }
+  function ensureNativeControls() {
+    // 1. Top Navigation Bar: Inject directly after backup/cloud button
+    injectTopBarControls();
 
-    // B. Bottom Left Corner: Inject beside Notes / Timer
-    if (!document.getElementById('ceg-bottom-left-bar')) {
-      injectBottomLeftControls();
-    }
+    // 2. Bottom Right Footer: Inject in the middle of Expandable button and Help (?) button
+    injectFooterTrayButton();
   }
 
   function injectTopBarControls() {
-    // Find cloud save icon or redo button
-    const cloudEl = document.querySelector(
+    if (document.getElementById('ceg-top-controls')) return;
+
+    // Search strictly within header
+    const header = document.querySelector('header');
+    if (!header) return;
+
+    // Find the cloud backup button inside header
+    const cloudBtn = header.querySelector(
       'button[aria-label*="save" i], [aria-label*="cloud" i], ' +
       'button[aria-label*="changes" i], [data-testid*="save" i], [data-testid*="cloud" i]'
     );
 
-    let anchor = cloudEl;
+    let anchor = cloudBtn;
     if (!anchor) {
-      anchor = document.querySelector('button[aria-label*="Redo" i], [data-testid*="redo" i]');
+      anchor = header.querySelector('button[aria-label*="Redo" i], [data-testid*="redo" i]');
     }
     if (!anchor) {
-      anchor = document.querySelector('button[aria-label*="Undo" i], [data-testid*="undo" i]');
+      anchor = header.querySelector('button[aria-label*="Undo" i], [data-testid*="undo" i]');
     }
+
+    if (!anchor || !anchor.parentElement) return;
 
     const topGroup = document.createElement('div');
     topGroup.id = 'ceg-top-controls';
@@ -182,14 +224,8 @@
       </div>
     `;
 
-    if (anchor && anchor.parentNode) {
-      anchor.parentNode.insertBefore(topGroup, anchor.nextSibling);
-    } else {
-      const header = document.querySelector('header nav, header > div, [role="banner"]') || document.body;
-      header.appendChild(topGroup);
-    }
+    anchor.parentElement.insertBefore(topGroup, anchor.nextSibling);
 
-    // Attach click events
     topGroup.querySelector('#ceg-nav-mouse').onclick = (e) => {
       e.stopPropagation();
       setInspector(false);
@@ -200,74 +236,76 @@
     };
   }
 
-  function injectBottomLeftControls() {
-    const bottomBar = document.createElement('div');
-    bottomBar.id = 'ceg-bottom-left-bar';
-    bottomBar.className = 'ceg-ui-element ceg-bottom-left-bar';
-    bottomBar.innerHTML = `
-      <button class="ceg-footer-btn" id="ceg-btn-tray" title="Open Grabbed Elements Tray">
-        <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-          <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/>
-        </svg>
-        <span>Tray</span>
-        <span class="ceg-footer-badge" id="ceg-tray-count">${grabbedList.length}</span>
-      </button>
-      <button class="ceg-footer-btn ${autoInsert ? 'active' : ''}" id="ceg-btn-auto" title="Toggle Auto-Drop onto canvas">
-        <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-          <polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"/>
-        </svg>
-        <span id="ceg-auto-label">Auto-Drop: ON</span>
-      </button>
+  function injectFooterTrayButton() {
+    if (document.getElementById('ceg-footer-tray-btn')) return;
+
+    // Search for help (?) button in bottom footer
+    const helpBtn = document.querySelector(
+      'button[aria-label*="help" i], button[aria-label*="support" i], ' +
+      'button[aria-label*="question" i], [data-testid*="help" i]'
+    );
+
+    // Search for expandable / fullscreen button in bottom footer
+    const expandBtn = document.querySelector(
+      'button[aria-label*="full screen" i], button[aria-label*="fullscreen" i], ' +
+      'button[aria-label*="present" i], button[aria-label*="expand" i], button[aria-label*="grid" i]'
+    );
+
+    const trayBtn = document.createElement('button');
+    trayBtn.id = 'ceg-footer-tray-btn';
+    trayBtn.className = 'ceg-ui-element ceg-footer-tray-btn';
+    trayBtn.title = 'Grabbed Elements Tray';
+    trayBtn.innerHTML = `
+      <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+        <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/>
+      </svg>
+      <span class="ceg-tray-badge" id="ceg-tray-badge" style="display:${grabbedList.length > 0 ? 'flex' : 'none'};">${grabbedList.length}</span>
     `;
 
-    // Attempt to position right after Timer/Notes in Canva footer
-    const notesBtn = document.querySelector('button[aria-label*="Notes" i], button[aria-label*="Timer" i]');
-    if (notesBtn && notesBtn.parentNode) {
-      // Find the right edge of Notes/Timer group to place cleanly
-      const footerGroup = notesBtn.closest('div');
-      if (footerGroup && footerGroup.parentNode) {
-        footerGroup.parentNode.insertBefore(bottomBar, footerGroup.nextSibling);
-      } else {
-        document.body.appendChild(bottomBar);
-      }
-    } else {
-      document.body.appendChild(bottomBar);
-    }
-
-    bottomBar.querySelector('#ceg-btn-tray').onclick = () => {
+    trayBtn.onclick = (e) => {
+      e.stopPropagation();
       trayDrawer.style.display = (trayDrawer.style.display === 'none' || !trayDrawer.style.display) ? 'flex' : 'none';
-      renderTray();
+      renderTrayItems();
     };
 
-    bottomBar.querySelector('#ceg-btn-auto').onclick = () => {
-      autoInsert = !autoInsert;
-      if (chrome.runtime?.id) chrome.storage.local.set({ autoInsert });
-      updateBottomLeftUI();
-      showToast(autoInsert ? '⚡ Auto-Drop ON' : '⚡ Auto-Drop OFF');
-    };
-
-    updateBottomLeftUI();
+    // Requirement: "insert the tray button in the middle of expandable sign and get help (question mark button)"
+    if (helpBtn && helpBtn.parentElement) {
+      helpBtn.parentElement.insertBefore(trayBtn, helpBtn);
+    } else if (expandBtn && expandBtn.parentElement) {
+      expandBtn.parentElement.insertBefore(trayBtn, expandBtn.nextSibling);
+    } else {
+      // Fallback: append near footer
+      const footer = document.querySelector('footer, [role="contentinfo"]') || document.body;
+      footer.appendChild(trayBtn);
+      trayBtn.style.position = 'fixed';
+      trayBtn.style.bottom = '10px';
+      trayBtn.style.right = '40px';
+    }
   }
 
-  function updateBottomLeftUI() {
-    const autoBtn = document.getElementById('ceg-btn-auto');
-    const autoLabel = document.getElementById('ceg-auto-label');
-    const trayCount = document.getElementById('ceg-tray-count');
+  function updateTrayUI() {
+    updateTrayBadge();
+    renderTrayItems();
+    const autodropCheck = document.getElementById('ceg-setting-autodrop');
+    const singlegrabCheck = document.getElementById('ceg-setting-singlegrab');
+    if (autodropCheck) autodropCheck.checked = autoInsert;
+    if (singlegrabCheck) singlegrabCheck.checked = autoSwitchToMouse;
+  }
 
-    if (autoBtn) autoBtn.classList.toggle('active', autoInsert);
-    if (autoLabel) autoLabel.textContent = autoInsert ? 'Auto-Drop: ON' : 'Auto-Drop: OFF';
-    if (trayCount) trayCount.textContent = grabbedList.length;
-
-    // Update top bar buttons active status
-    const mouseBtn = document.getElementById('ceg-nav-mouse');
-    const grabBtn = document.getElementById('ceg-nav-grab');
-    if (mouseBtn) mouseBtn.classList.toggle('active', !isInspectorActive);
-    if (grabBtn) grabBtn.classList.toggle('active', isInspectorActive);
+  function updateTrayBadge() {
+    const badge = document.getElementById('ceg-tray-badge');
+    if (!badge) return;
+    badge.textContent = grabbedList.length;
+    badge.style.display = grabbedList.length > 0 ? 'flex' : 'none';
   }
 
   function setInspector(active) {
     isInspectorActive = active;
-    updateBottomLeftUI();
+
+    const mouseBtn = document.getElementById('ceg-nav-mouse');
+    const grabBtn = document.getElementById('ceg-nav-grab');
+    if (mouseBtn) mouseBtn.classList.toggle('active', !isInspectorActive);
+    if (grabBtn) grabBtn.classList.toggle('active', isInspectorActive);
 
     if (active) {
       document.documentElement.classList.add('ceg-active');
@@ -294,19 +332,15 @@
 
   /**
    * ACCURATE PER-PIXEL TARGET FINDER
-   * Evaluates the exact pixel stack under the cursor via elementsFromPoint.
    */
   function findGraphicAtPoint(x, y) {
     const stack = document.elementsFromPoint(x, y);
     if (!stack || stack.length === 0) return null;
 
-    // Ignore extension UI
     if (stack[0].closest('.ceg-ui-element')) return null;
-
-    // Ignore active editor canvas artboard
     if (stack[0].closest('[data-testid="canvas-container"], [data-testid="page-container"], canvas')) return null;
 
-    // 1. Look for an <img> directly at (x, y)
+    // 1. Look for <img> directly at (x, y)
     for (const el of stack) {
       if (el.tagName === 'IMG') {
         const src = el.currentSrc || el.src || el.getAttribute('data-src') || '';
@@ -317,7 +351,7 @@
       }
     }
 
-    // 2. Look for an <svg> directly at (x, y) (Shapes like Triangles, Lines, Polygons)
+    // 2. Look for <svg> directly at (x, y)
     for (const el of stack) {
       const svg = el.tagName === 'SVG' ? el : el.closest('svg');
       if (svg) {
@@ -328,7 +362,7 @@
       }
     }
 
-    // 3. Look for background-image directly at (x, y)
+    // 3. Look for background-image
     for (const el of stack) {
       if (isBadUI(el)) continue;
       const bg = window.getComputedStyle(el).backgroundImage;
@@ -337,7 +371,7 @@
       }
     }
 
-    // 4. Look inside immediate tile card at (x, y)
+    // 4. Look inside immediate tile
     for (const el of stack) {
       const isTile = el.tagName === 'BUTTON' || el.getAttribute('role') === 'button' || el.getAttribute('draggable') === 'true';
       if (isTile) {
@@ -435,9 +469,13 @@
       return;
     }
 
-    // Subtle feedback flash on clicked element
     target.el.classList.add('ceg-flash-pulse');
     setTimeout(() => target.el.classList.remove('ceg-flash-pulse'), 350);
+
+    // Requirement: If "autoSwitchToMouse" setting is ON, smoothly return to mouse mode after 1 grab!
+    if (autoSwitchToMouse) {
+      setInspector(false);
+    }
 
     showToast('⏳ Extracting element...');
     await processTarget(target);
@@ -523,8 +561,8 @@
         } catch (e) {}
       }
 
-      renderTray();
-      updateBottomLeftUI();
+      renderTrayItems();
+      updateTrayBadge();
       showToast(`✨ Grabbed: ${item.title}`);
 
       if (autoInsert) {
@@ -572,7 +610,6 @@
 
   /**
    * Insert onto Canva Canvas
-   * Dispatches targeted paste event to document (Processed directly by Canva)
    */
   async function insertOntoCanvas(item) {
     if (isInserting) return;
@@ -661,12 +698,12 @@
     return document.body;
   }
 
-  function renderTray() {
+  function renderTrayItems() {
     const list = document.getElementById('ceg-tray-list');
     if (!list) return;
 
     if (grabbedList.length === 0) {
-      list.innerHTML = `<div style="text-align:center;padding:20px;color:#71717a;font-size:12px;">No elements in tray.<br>Toggle <b>Grab Mode</b> in the top bar to grab graphics!</div>`;
+      list.innerHTML = `<div style="text-align:center;padding:20px;color:#71717a;font-size:12px;">No elements in tray.<br>Toggle <b>Grab Mode</b> in top bar to grab graphics!</div>`;
       return;
     }
 

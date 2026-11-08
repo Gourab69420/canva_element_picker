@@ -5,6 +5,7 @@ document.addEventListener('DOMContentLoaded', async () => {
   const inspectLabel = document.getElementById('inspect-label');
   const inspectIcon = document.getElementById('inspect-icon');
   const autoToggle = document.getElementById('toggle-auto');
+  const singleGrabToggle = document.getElementById('toggle-single-grab');
   const statusBadge = document.getElementById('status-badge');
   const historyList = document.getElementById('history-list');
   const historyCount = document.getElementById('history-count');
@@ -43,6 +44,9 @@ document.addEventListener('DOMContentLoaded', async () => {
       if (res?.success) {
         isInspectorActive = res.isInspectorActive;
         autoToggle.checked = res.autoInsert;
+        if (singleGrabToggle && res.autoSwitchToMouse !== undefined) {
+          singleGrabToggle.checked = res.autoSwitchToMouse;
+        }
         updateInspectUI();
         if (res.latestItem) showSelected(res.latestItem);
       }
@@ -62,6 +66,9 @@ document.addEventListener('DOMContentLoaded', async () => {
       if (changes.grabbedElements) renderHistory(changes.grabbedElements.newValue || []);
       if (changes.latestGrabbed?.newValue) showSelected(changes.latestGrabbed.newValue);
       if (changes.autoInsert !== undefined) autoToggle.checked = changes.autoInsert.newValue;
+      if (changes.autoSwitchToMouse !== undefined && singleGrabToggle) {
+        singleGrabToggle.checked = changes.autoSwitchToMouse.newValue;
+      }
     }
   });
 
@@ -92,6 +99,18 @@ document.addEventListener('DOMContentLoaded', async () => {
       });
     }
   };
+
+  if (singleGrabToggle) {
+    singleGrabToggle.onchange = () => {
+      const enabled = singleGrabToggle.checked;
+      chrome.storage.local.set({ autoSwitchToMouse: enabled });
+      if (isCanva && activeTab) {
+        chrome.tabs.sendMessage(activeTab.id, { action: 'SET_SINGLE_GRAB', enabled }, () => {
+          void chrome.runtime.lastError;
+        });
+      }
+    };
+  }
 
   clearBtn.onclick = () => {
     chrome.storage.local.set({ grabbedElements: [], latestGrabbed: null });
@@ -162,8 +181,11 @@ document.addEventListener('DOMContentLoaded', async () => {
   }
 
   function loadStored() {
-    chrome.storage.local.get(['grabbedElements', 'latestGrabbed', 'autoInsert'], (res) => {
+    chrome.storage.local.get(['grabbedElements', 'latestGrabbed', 'autoInsert', 'autoSwitchToMouse'], (res) => {
       if (res.autoInsert !== undefined) autoToggle.checked = res.autoInsert;
+      if (res.autoSwitchToMouse !== undefined && singleGrabToggle) {
+        singleGrabToggle.checked = res.autoSwitchToMouse;
+      }
       if (res.latestGrabbed) showSelected(res.latestGrabbed);
       else if (res.grabbedElements?.length) showSelected(res.grabbedElements[0]);
       else {
