@@ -126,8 +126,10 @@ document.addEventListener('DOMContentLoaded', async () => {
     if (!currentSelection || !isCanva || !activeTab) return;
     chrome.tabs.sendMessage(activeTab.id, { action: 'INSERT_ITEM', item: currentSelection }, () => {
       void chrome.runtime.lastError;
-      btnInsert.textContent = '✓ Placed on Canvas!';
-      setTimeout(() => (btnInsert.textContent = '⚡ Insert into Page'), 1500);
+      btnInsert.innerHTML = `Placed on Canvas!`;
+      setTimeout(() => {
+        btnInsert.innerHTML = `<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"/></svg> Insert into Page`;
+      }, 1500);
     });
   };
 
@@ -137,8 +139,10 @@ document.addEventListener('DOMContentLoaded', async () => {
       const res = await fetch(currentSelection.dataUrl);
       const blob = await res.blob();
       await navigator.clipboard.write([new ClipboardItem({ 'image/png': blob })]);
-      btnCopy.textContent = '✓';
-      setTimeout(() => (btnCopy.textContent = '📋'), 1500);
+      btnCopy.textContent = 'Copied';
+      setTimeout(() => {
+        btnCopy.innerHTML = `<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><rect x="9" y="9" width="13" height="13" rx="2" ry="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg>`;
+      }, 1500);
     } catch (e) {}
   };
 
@@ -158,11 +162,11 @@ document.addEventListener('DOMContentLoaded', async () => {
   function updateInspectUI() {
     if (isInspectorActive) {
       inspectBtn.classList.add('active');
-      inspectIcon.textContent = '🟢';
+      inspectIcon.innerHTML = `<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#ffffff" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"></circle><polyline points="12 6 12 12 16 14"></polyline></svg>`;
       inspectLabel.textContent = 'Inspector ACTIVE (Click in Canva)';
     } else {
       inspectBtn.classList.remove('active');
-      inspectIcon.textContent = '🎯';
+      inspectIcon.innerHTML = `<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"></circle><line x1="22" y1="12" x2="18" y2="12"></line><line x1="6" y1="12" x2="2" y2="12"></line><line x1="12" y1="6" x2="12" y2="2"></line><line x1="12" y1="22" x2="12" y2="18"></line></svg>`;
       inspectLabel.textContent = 'Activate Inspector';
     }
   }
