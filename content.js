@@ -51,7 +51,9 @@
 
   function initProjectUI() {
     if (!isProjectPage()) return;
+    if (!document.body) return;
     if (document.getElementById('ceg-tray-drawer')) return;
+    try {
 
     // 1. Create Bounding Box Overlay (#5E50E2 Non-Neon)
     overlay = document.createElement('div');
@@ -133,6 +135,7 @@
 
     // Initial injection into Canva's DOM
     ensureNativeControls();
+    } catch (e) {}
   }
 
   function teardownProjectUI() {
@@ -145,34 +148,37 @@
 
   // 3. Inject Controls into Canva's DOM - Guaranteed non-blocking O(1) checks
   function ensureNativeControls() {
-    if (!isProjectPage()) {
-      teardownProjectUI();
-      return;
-    }
+    try {
+      if (!isProjectPage()) {
+        teardownProjectUI();
+        return;
+      }
+      if (!document.body) return;
 
-    if (!document.getElementById('ceg-tray-drawer')) {
-      initProjectUI();
-    }
+      if (!document.getElementById('ceg-tray-drawer')) {
+        initProjectUI();
+      }
 
-    // Fast O(1) check: if both controls are already attached to the DOM, do NOTHING!
-    const topExists = document.getElementById('ceg-top-controls');
-    const footerExists = document.getElementById('ceg-footer-tray-btn');
-    if (topExists && document.body.contains(topExists) &&
-        footerExists && document.body.contains(footerExists)) {
-      return;
-    }
+      // Fast O(1) check: if both controls are already attached to the DOM, do NOTHING!
+      const topExists = document.getElementById('ceg-top-controls');
+      const footerExists = document.getElementById('ceg-footer-tray-btn');
+      if (topExists && document.body && document.body.contains(topExists) &&
+          footerExists && document.body && document.body.contains(footerExists)) {
+        return;
+      }
 
-    // Only inject once Canva's project header is mounted
-    const header = document.querySelector('header');
-    if (!header) return;
+      // Only inject once Canva's project header is mounted
+      const header = document.querySelector('header');
+      if (!header) return;
 
-    if (!topExists || !document.body.contains(topExists)) {
-      injectTopBarControls(header);
-    }
+      if (!topExists || !document.body || !document.body.contains(topExists)) {
+        injectTopBarControls(header);
+      }
 
-    if (!footerExists || !document.body.contains(footerExists)) {
-      injectFooterTrayButton();
-    }
+      if (!footerExists || !document.body || !document.body.contains(footerExists)) {
+        injectFooterTrayButton();
+      }
+    } catch (e) {}
   }
 
   // Top Nav Bar Mouse/Grab Toggle handlers (Capturing mode guarantees instant 1st-click toggle)
@@ -202,7 +208,8 @@
   }
 
   function injectTopBarControls(header) {
-    let topGroup = document.getElementById('ceg-top-controls');
+    try {
+      let topGroup = document.getElementById('ceg-top-controls');
 
     // Find the cloud backup button inside Canva's header
     const cloudBtn = header.querySelector(
@@ -252,6 +259,7 @@
 
     // Mathematical vertical centering against anchor (cloud button)
     alignTopControlsWithAnchor(anchor, topGroup);
+    } catch (e) {}
   }
 
   function alignTopControlsWithAnchor(anchor, topGroup) {
@@ -272,7 +280,8 @@
   }
 
   function injectFooterTrayButton() {
-    let trayBtn = document.getElementById('ceg-footer-tray-btn');
+    try {
+      let trayBtn = document.getElementById('ceg-footer-tray-btn');
     if (trayBtn && document.body.contains(trayBtn)) {
       updateTrayButtonDisplay();
       return;
@@ -319,6 +328,7 @@
     } else if (expandBtn && expandBtn.parentElement) {
       expandBtn.parentElement.insertBefore(trayBtn, expandBtn.nextSibling);
     }
+    } catch (e) {}
   }
 
   function findFooterTargetButtons() {
@@ -394,27 +404,38 @@
 
   // 4. Watch for DOM changes & URL changes with debouncing
   if (isProjectPage()) {
-    initProjectUI();
+    try { initProjectUI(); } catch (e) {}
   }
 
   // 400ms debounced observer prevents ANY reflow/infinite loading loop
   observer = new MutationObserver(() => {
-    if (!isProjectPage()) return;
-    if (document.getElementById('ceg-top-controls') && document.getElementById('ceg-footer-tray-btn')) {
-      return;
-    }
-    if (mutationTimer) return;
-    mutationTimer = setTimeout(() => {
-      mutationTimer = null;
-      ensureNativeControls();
-    }, 400);
+    try {
+      if (!isProjectPage()) return;
+      if (document.getElementById('ceg-top-controls') && document.getElementById('ceg-footer-tray-btn')) {
+        return;
+      }
+      if (mutationTimer) return;
+      mutationTimer = setTimeout(() => {
+        mutationTimer = null;
+        ensureNativeControls();
+      }, 400);
+    } catch (e) {}
   });
-  observer.observe(document.body, { childList: true, subtree: true });
+
+  if (document.body) {
+    observer.observe(document.body, { childList: true, subtree: true });
+  } else {
+    document.addEventListener('DOMContentLoaded', () => {
+      if (document.body) observer.observe(document.body, { childList: true, subtree: true });
+    });
+  }
 
   intervalId = setInterval(() => {
-    if (isProjectPage()) {
-      ensureNativeControls();
-    }
+    try {
+      if (isProjectPage()) {
+        ensureNativeControls();
+      }
+    } catch (e) {}
   }, 1200);
 
   // Monitor SPA navigation (entering or exiting project)
