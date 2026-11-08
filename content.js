@@ -486,28 +486,31 @@
 
   /**
    * Insert onto Canva Canvas
-   * SINGLE DROP EVENT ONLY with debounce lock (Never inserts twice!)
+   * Dispatches a single targeted drop + single paste event so Canva places the graphic onto the page.
    */
   async function insertOntoCanvas(item) {
     if (isInserting) return;
     isInserting = true;
-    setTimeout(() => { isInserting = false; }, 600);
+    setTimeout(() => { isInserting = false; }, 800);
 
-    showToast('🚀 Dropping onto canvas...');
+    showToast('🚀 Placing onto canvas...');
 
     try {
       const res = await fetch(item.dataUrl);
       const blob = await res.blob();
       const file = new File([blob], `graphic_${Date.now()}.png`, { type: 'image/png' });
 
-      const canvasContainer = document.querySelector(
-        '[data-testid="canvas-container"], [data-testid="page-container"], canvas, main'
-      ) || document.body;
+      // 1. Focus Canva page container
+      const pageEl = findActiveCanvaPage();
+      try {
+        if (pageEl && pageEl.focus) pageEl.focus();
+      } catch (e) {}
 
+      // 2. Dispatch Drag & Drop on page container
       const dt = new DataTransfer();
       dt.items.add(file);
 
-      const r = canvasContainer.getBoundingClientRect();
+      const r = pageEl.getBoundingClientRect();
       const cx = r.left + r.width / 2;
       const cy = r.top + r.height / 2;
 
@@ -522,16 +525,56 @@
         screenY: cy
       };
 
-      // Dispatches drop ONCE
-      canvasContainer.dispatchEvent(new DragEvent('dragenter', eventInit));
-      canvasContainer.dispatchEvent(new DragEvent('dragover', eventInit));
-      canvasContainer.dispatchEvent(new DragEvent('drop', eventInit));
+      pageEl.dispatchEvent(new DragEvent('dragenter', eventInit));
+      pageEl.dispatchEvent(new DragEvent('dragover', eventInit));
+      pageEl.dispatchEvent(new DragEvent('drop', eventInit));
 
-      showToast('🎉 Element placed onto canvas!');
+      // 3. Dispatch SINGLE Paste Event on document (Canva's web app processes this directly)
+      const pasteDt = new DataTransfer();
+      pasteDt.items.add(file);
+
+      const pasteEvent = new ClipboardEvent('paste', {
+        bubbles: false, // Do not bubble to prevent double handling
+        cancelable: true,
+        composed: true,
+        clipboardData: pasteDt
+      });
+
+      document.dispatchEvent(pasteEvent);
+
+      // 4. Also copy image to native system clipboard
+      try {
+        if (navigator.clipboard && navigator.clipboard.write) {
+          await navigator.clipboard.write([
+            new ClipboardItem({ 'image/png': blob })
+          ]);
+        }
+      } catch (clipErr) {
+        console.warn('Clipboard write fallback:', clipErr);
+      }
+
+      showToast('🎉 Element placed onto canvas! (Press Ctrl+V if needed)');
     } catch (e) {
       console.error('Drop error:', e);
       showToast('⚠️ Could not auto-drop. Drag it from the Tray directly onto the canvas!', 'info');
     }
+  }
+
+  function findActiveCanvaPage() {
+    const selectors = [
+      '[data-page-index]',
+      '[data-testid="page-container"]',
+      '[data-testid="editor-viewport"]',
+      '[role="region"][aria-label*="Page" i]',
+      '[role="region"][aria-label*="canvas" i]',
+      'canvas',
+      'main'
+    ];
+    for (const s of selectors) {
+      const el = document.querySelector(s);
+      if (el) return el;
+    }
+    return document.body;
   }
 
   function renderTray() {
