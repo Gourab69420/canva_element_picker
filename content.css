@@ -102,6 +102,12 @@ body.ceg-active * {
   transition: all 0.18s cubic-bezier(0.4, 0, 0.2, 1) !important;
   padding: 0 !important;
   cursor: pointer !important;
+  user-select: none !important;
+}
+
+.ceg-nav-btn svg,
+.ceg-nav-btn svg * {
+  pointer-events: none !important;
 }
 
 .ceg-nav-btn:hover {

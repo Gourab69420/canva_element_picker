@@ -430,6 +430,33 @@ input:checked + .slider:before {
 
 .footer {
   text-align: center;
+  font-size: 11px;
+  color: #71717a;
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  align-items: center;
+  padding-top: 4px;
+}
+
+.footer-title {
   font-size: 10px;
   color: #52525b;
+}
+
+.footer-credit {
+  font-size: 11px;
+  color: #a1a1aa;
+}
+
+.footer-credit a {
+  color: #818cf8;
+  text-decoration: none;
+  font-weight: 500;
+  transition: color 0.15s ease;
+}
+
+.footer-credit a:hover {
+  color: #a5b4fc;
+  text-decoration: underline;
 }

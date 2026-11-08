@@ -220,14 +220,8 @@
 
       anchor.parentElement.insertBefore(topGroup, anchor.nextSibling);
 
-      topGroup.querySelector('#ceg-nav-mouse').onclick = (e) => {
-        e.stopPropagation();
-        setInspector(false);
-      };
-      topGroup.querySelector('#ceg-nav-grab').onclick = (e) => {
-        e.stopPropagation();
-        setInspector(true);
-      };
+      topGroup.addEventListener('click', onTopToggleClick, true);
+      topGroup.addEventListener('pointerdown', onTopPointerDown, true);
     }
 
     // Mathematical vertical centering against anchor (cloud button)
@@ -423,6 +417,35 @@
   };
   window.addEventListener('keydown', onKeyDown);
 
+  // Top Nav Bar Mouse/Grab Toggle handlers (Capturing mode guarantees instant 1st-click toggle)
+  const onTopToggleClick = (e) => {
+    const grabBtn = e.target.closest('#ceg-nav-grab');
+    const mouseBtn = e.target.closest('#ceg-nav-mouse');
+    const segContainer = e.target.closest('.ceg-nav-segmented');
+    if (!grabBtn && !mouseBtn && !segContainer) return;
+
+    e.preventDefault();
+    e.stopPropagation();
+    e.stopImmediatePropagation();
+
+    if (grabBtn) {
+      setInspector(true);
+    } else if (mouseBtn) {
+      setInspector(false);
+    } else if (segContainer) {
+      setInspector(!isInspectorActive);
+    }
+  };
+
+  const onTopPointerDown = (e) => {
+    if (e.target.closest('#ceg-top-controls')) {
+      e.stopPropagation();
+    }
+  };
+
+  document.addEventListener('click', onTopToggleClick, true);
+  document.addEventListener('pointerdown', onTopPointerDown, true);
+
   // Popup Message Listener
   const onMessage = (req, sender, sendResponse) => {
     if (!chrome.runtime?.id) return;
@@ -474,6 +497,8 @@
     if (intervalId) clearInterval(intervalId);
     if (urlCheckInterval) clearInterval(urlCheckInterval);
     window.removeEventListener('keydown', onKeyDown);
+    document.removeEventListener('click', onTopToggleClick, true);
+    document.removeEventListener('pointerdown', onTopPointerDown, true);
     chrome.runtime.onMessage.removeListener(onMessage);
     document.querySelectorAll('.ceg-ui-element').forEach(el => el.remove());
     setInspector(false);
@@ -482,16 +507,18 @@
   function setInspector(active) {
     isInspectorActive = active;
 
-    const mouseBtn = document.getElementById('ceg-nav-mouse');
-    const grabBtn = document.getElementById('ceg-nav-grab');
-    if (mouseBtn) mouseBtn.classList.toggle('active', !isInspectorActive);
-    if (grabBtn) grabBtn.classList.toggle('active', isInspectorActive);
+    const mouseBtns = document.querySelectorAll('#ceg-nav-mouse');
+    const grabBtns = document.querySelectorAll('#ceg-nav-grab');
+    mouseBtns.forEach(btn => btn.classList.toggle('active', !isInspectorActive));
+    grabBtns.forEach(btn => btn.classList.toggle('active', isInspectorActive));
 
     if (active) {
       document.documentElement.classList.add('ceg-active');
       document.body.classList.add('ceg-active');
       showToast('Grab Mode Active: Click any graphic or shape');
 
+      window.removeEventListener('mousemove', onMouseMove, true);
+      window.removeEventListener('click', onClick, true);
       window.addEventListener('mousemove', onMouseMove, true);
       window.addEventListener('click', onClick, true);
     } else {

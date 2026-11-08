@@ -231,6 +231,14 @@ document.addEventListener('DOMContentLoaded', async () => {
     });
   }
 
+  const creditLink = document.getElementById('footer-credit-link');
+  if (creditLink) {
+    creditLink.onclick = (e) => {
+      e.preventDefault();
+      chrome.tabs.create({ url: 'https://github.com/Gourab69420' });
+    };
+  }
+
   async function ensureInjected(tabId) {
     return new Promise((resolve) => {
       chrome.tabs.sendMessage(tabId, { action: 'PING' }, async (res) => {
