@@ -1,5 +1,7 @@
 /**
- * Canva Element Grabber & Inserter - Content Script (v2.0)
+ * Canva Element Grabber & Inserter - Content Script (v2.1)
+ * Uses document.elementsFromPoint for 100% accurate per-pixel selection.
+ * Keeps inspector active so user can click multiple different elements in Canva.
  */
 
 (function () {
@@ -9,7 +11,7 @@
     try { window.__CANVA_GRABBER_CLEANUP__(); } catch (e) {}
   }
 
-  console.log('Canva Element Grabber v2.0 loaded.');
+  console.log('Canva Element Grabber v2.1 loaded.');
 
   // State
   let isInspectorActive = false;
@@ -43,8 +45,8 @@
   topBanner.style.display = 'none';
   topBanner.innerHTML = `
     <div class="ceg-dot"></div>
-    <span>🟢 <b>Element Grabber Active:</b> Click any shape, graphic, or photo in sidebar</span>
-    <button class="ceg-banner-close" id="ceg-exit-btn">Exit (Esc)</button>
+    <span>🟢 <b>Inspector Active:</b> Click any element in sidebar (Press Esc when done)</span>
+    <button class="ceg-banner-close" id="ceg-exit-btn">Done (Esc)</button>
   `;
   document.body.appendChild(topBanner);
   topBanner.querySelector('#ceg-exit-btn').onclick = () => setInspector(false);
@@ -176,7 +178,7 @@
       document.documentElement.classList.add('ceg-active');
       document.body.classList.add('ceg-active');
       topBanner.style.display = 'flex';
-      showToast('🟢 Inspector Active: Point & click any graphic or shape!');
+      showToast('🟢 Inspector Active: Click any elements to grab them!');
 
       window.addEventListener('mousemove', onMouseMove, true);
       window.addEventListener('click', onClick, true);
@@ -200,88 +202,82 @@
   }
 
   /**
-   * ACCURATE TARGET FINDER
-   * Finds the exact graphic/shape tile under the cursor without expanding to the outer list container.
+   * ACCURATE PER-PIXEL TARGET FINDER
+   * Uses document.elementsFromPoint to inspect the EXACT element stack under cursor.
+   * Eliminates picking wrong elements or locking onto the first item!
    */
-  function findGraphicTarget(rawEl) {
-    if (!rawEl || rawEl === document.body || rawEl === document.documentElement) return null;
+  function findGraphicAtPoint(x, y) {
+    const stack = document.elementsFromPoint(x, y);
+    if (!stack || stack.length === 0) return null;
 
     // Ignore extension UI
-    if (rawEl.closest('.ceg-ui-element')) return null;
+    if (stack[0].closest('.ceg-ui-element')) return null;
 
     // Ignore active editor canvas artboard
-    if (rawEl.closest('[data-testid="canvas-container"], [data-testid="page-container"], canvas')) return null;
+    if (stack[0].closest('[data-testid="canvas-container"], [data-testid="page-container"], canvas')) return null;
 
-    // Step 1: Find the immediate tile container
-    // A single element tile in Canva is small (width < 220, height < 220). Never match the full list container!
-    let tile = rawEl;
-    while (tile && tile !== document.body) {
-      const isTile = tile.tagName === 'BUTTON' || tile.getAttribute('role') === 'button' || tile.getAttribute('draggable') === 'true';
-      const rect = tile.getBoundingClientRect();
-      if (isTile && rect.width > 20 && rect.width < 220 && rect.height > 20 && rect.height < 220) {
-        break;
-      }
-      // Stop before overshooting into list containers
-      if (rect.width > 240 || rect.height > 240) {
-        tile = rawEl.parentElement || rawEl;
-        break;
-      }
-      tile = tile.parentElement;
-    }
-    if (!tile) tile = rawEl;
-
-    // Step 2: Collect all candidate graphics in this single tile
-    const candidates = [];
-
-    // Check <img> in tile
-    const imgs = tile.querySelectorAll('img');
-    for (const img of imgs) {
-      if (isBadUI(img)) continue;
-      const r = img.getBoundingClientRect();
-      const area = r.width * r.height;
-      if (area >= 400) {
-        candidates.push({ el: img, type: 'img', area, rect: r });
+    // 1. Look for an <img> directly at (x, y)
+    for (const el of stack) {
+      if (el.tagName === 'IMG') {
+        const src = el.currentSrc || el.src || el.getAttribute('data-src') || '';
+        const r = el.getBoundingClientRect();
+        if (r.width > 20 && r.height > 20 && !isBadUI(el) && src && !src.startsWith('data:image/gif')) {
+          return { el, type: 'img', rect: r, src };
+        }
       }
     }
 
-    // Check <svg> in tile
-    const svgs = tile.querySelectorAll('svg');
-    for (const svg of svgs) {
-      if (isBadUI(svg)) continue;
-      const r = svg.getBoundingClientRect();
-      const area = r.width * r.height;
-      // Illustrations/shapes are larger than 24x24 (area > 500)
-      if (area >= 500) {
-        candidates.push({ el: svg, type: 'svg', area, rect: r });
+    // 2. Look for an <svg> directly at (x, y) (Shapes like Triangles, Lines, Polygons)
+    for (const el of stack) {
+      const svg = el.tagName === 'SVG' ? el : el.closest('svg');
+      if (svg) {
+        const r = svg.getBoundingClientRect();
+        // Skip tiny UI icons (Crown/3-dots are <= 26px)
+        if (r.width > 24 && r.height > 24 && !isBadUI(svg)) {
+          return { el: svg, type: 'svg', rect: r };
+        }
       }
     }
 
-    // Check direct SVG under pointer
-    const directSvg = rawEl.closest('svg');
-    if (directSvg && !isBadUI(directSvg)) {
-      const r = directSvg.getBoundingClientRect();
-      if (r.width * r.height >= 400) {
-        candidates.push({ el: directSvg, type: 'svg', area: r.width * r.height, rect: r });
-      }
-    }
-
-    // Check direct IMG under pointer
-    if (rawEl.tagName === 'IMG' && !isBadUI(rawEl)) {
-      const r = rawEl.getBoundingClientRect();
-      candidates.push({ el: rawEl, type: 'img', area: r.width * r.height, rect: r });
-    }
-
-    if (candidates.length === 0) {
-      const bg = window.getComputedStyle(tile).backgroundImage;
+    // 3. Look for background-image directly at (x, y)
+    for (const el of stack) {
+      if (isBadUI(el)) continue;
+      const bg = window.getComputedStyle(el).backgroundImage;
       if (bg && bg !== 'none' && bg.startsWith('url(')) {
-        return { el: tile, type: 'bg', rect: tile.getBoundingClientRect() };
+        return { el, type: 'bg', rect: el.getBoundingClientRect() };
       }
-      return null;
     }
 
-    // Sort by area descending: the main artwork is always the largest element!
-    candidates.sort((a, b) => b.area - a.area);
-    return candidates[0];
+    // 4. Look inside the immediate tile card at (x, y)
+    for (const el of stack) {
+      const isTile = el.tagName === 'BUTTON' || el.getAttribute('role') === 'button' || el.getAttribute('draggable') === 'true';
+      if (isTile) {
+        const r = el.getBoundingClientRect();
+        if (r.width < 250 && r.height < 250) {
+          // Check for img in this tile
+          const img = el.querySelector('img');
+          if (img && !isBadUI(img)) {
+            const ir = img.getBoundingClientRect();
+            if (ir.width > 20 && ir.height > 20) {
+              return { el: img, type: 'img', rect: ir, src: img.currentSrc || img.src };
+            }
+          }
+          // Check for svg in this tile
+          const svgs = el.querySelectorAll('svg');
+          for (const s of svgs) {
+            if (!isBadUI(s)) {
+              const sr = s.getBoundingClientRect();
+              if (sr.width > 24 && sr.height > 24) {
+                return { el: s, type: 'svg', rect: sr };
+              }
+            }
+          }
+        }
+        break; // Stop at immediate tile
+      }
+    }
+
+    return null;
   }
 
   function isBadUI(el) {
@@ -317,7 +313,7 @@
   function onMouseMove(e) {
     if (!isInspectorActive) return;
 
-    const target = findGraphicTarget(e.target);
+    const target = findGraphicAtPoint(e.clientX, e.clientY);
     if (!target) {
       overlay.style.display = 'none';
       currentTarget = null;
@@ -333,7 +329,7 @@
     overlay.style.width = `${r.width}px`;
     overlay.style.height = `${r.height}px`;
 
-    const typeLabel = target.type === 'svg' ? 'Shape / Vector (SVG)' : 'Graphic / Image';
+    const typeLabel = target.type === 'svg' ? 'Shape / Vector' : 'Graphic / Image';
     tooltip.textContent = `🎯 Click to Grab ${typeLabel}`;
   }
 
@@ -346,13 +342,17 @@
     e.stopPropagation();
     e.stopImmediatePropagation();
 
-    const target = currentTarget || findGraphicTarget(e.target);
+    const target = currentTarget || findGraphicAtPoint(e.clientX, e.clientY);
     if (!target) {
       showToast('❌ No graphic detected here. Click directly on an icon or shape.', 'error');
       return;
     }
 
-    setInspector(false);
+    // Flash animation on the grabbed element for visual feedback
+    target.el.classList.add('ceg-flash-pulse');
+    setTimeout(() => target.el.classList.remove('ceg-flash-pulse'), 400);
+
+    // NOTICE: We do NOT shut off inspector! You can keep clicking elements!
     showToast('⏳ Extracting element...');
     await processTarget(target);
   }
@@ -389,13 +389,13 @@
         rawSvg = new XMLSerializer().serializeToString(clone);
         const svgUrl = 'data:image/svg+xml;charset=utf-8,' + encodeURIComponent(rawSvg);
 
-        // Convert to high-res PNG for 100% reliable Canva canvas drop
+        // Convert to high-res PNG for Canva canvas drop
         const pngUrl = await svgToPng(svgUrl, w * 2, h * 2);
         dataUrl = pngUrl || svgUrl;
         title = el.getAttribute('aria-label') || 'Vector Shape';
 
       } else if (type === 'img') {
-        const src = el.currentSrc || el.src || el.getAttribute('data-src');
+        const src = target.src || el.currentSrc || el.src || el.getAttribute('data-src');
         title = el.alt || 'Canva Graphic';
 
         try {
@@ -416,7 +416,7 @@
       if (!dataUrl) throw new Error('Could not extract graphic source');
 
       const item = {
-        id: 'ceg_' + Date.now(),
+        id: 'ceg_' + Date.now() + '_' + Math.random().toString(36).substr(2, 4),
         dataUrl: dataUrl,
         rawSvg: rawSvg,
         title: title,
@@ -491,7 +491,7 @@
   async function insertOntoCanvas(item) {
     if (isInserting) return;
     isInserting = true;
-    setTimeout(() => { isInserting = false; }, 800);
+    setTimeout(() => { isInserting = false; }, 600);
 
     showToast('🚀 Dropping onto canvas...');
 
