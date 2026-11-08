@@ -668,20 +668,29 @@
         }
 
         const rect = el.getBoundingClientRect();
-        const w = Math.round(rect.width) || 200;
-        const h = Math.round(rect.height) || 200;
+        const w = Math.round(rect.width) || 300;
+        const h = Math.round(rect.height) || 300;
 
+        // Preserve native viewBox or compute proportional viewBox from rect
         if (!clone.getAttribute('viewBox')) {
           clone.setAttribute('viewBox', `0 0 ${w} ${h}`);
         }
-        clone.setAttribute('width', w.toString());
-        clone.setAttribute('height', h.toString());
+
+        // Ultra high resolution vector scaling (3200px true vector sharpness)
+        const targetDim = 3200;
+        const aspect = (w > 0 && h > 0) ? (w / h) : 1;
+        const renderW = aspect >= 1 ? targetDim : Math.round(targetDim * aspect);
+        const renderH = aspect >= 1 ? Math.round(targetDim / aspect) : targetDim;
+
+        // Set high intrinsic dimensions on clone so SVG rasterizer uses true vector sharpness
+        clone.setAttribute('width', renderW.toString());
+        clone.setAttribute('height', renderH.toString());
 
         rawSvg = new XMLSerializer().serializeToString(clone);
         const svgUrl = 'data:image/svg+xml;charset=utf-8,' + encodeURIComponent(rawSvg);
 
-        // Ultra high resolution 4x rendering for canvas artboard
-        const pngUrl = await svgToPng(svgUrl, w, h);
+        // Ultra high resolution 3200px rendering for canvas artboard
+        const pngUrl = await svgToPng(svgUrl, renderW, renderH);
         dataUrl = pngUrl || svgUrl;
         title = el.getAttribute('aria-label') || 'Vector Shape';
 
@@ -796,14 +805,14 @@
       img.onload = () => {
         try {
           const canvas = document.createElement('canvas');
-          // High resolution 4x scaling (minimum 2400x2400)
-          const scale = 4;
-          canvas.width = Math.max(Math.round((width || 300) * scale), 2400);
-          canvas.height = Math.max(Math.round((height || 300) * scale), 2400);
+          const targetW = width || 3200;
+          const targetH = height || 3200;
+          canvas.width = targetW;
+          canvas.height = targetH;
           const ctx = canvas.getContext('2d');
           ctx.imageSmoothingEnabled = true;
           ctx.imageSmoothingQuality = 'high';
-          ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
+          ctx.drawImage(img, 0, 0, targetW, targetH);
           resolve(canvas.toDataURL('image/png'));
         } catch (e) {
           resolve(null);
