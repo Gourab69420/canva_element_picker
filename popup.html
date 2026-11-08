@@ -7,104 +7,94 @@
   <link rel="stylesheet" href="popup.css">
 </head>
 <body>
-  <div class="popup-container">
+  <div class="popup-box">
     <!-- Header -->
     <header class="header">
-      <div class="logo-area">
-        <div class="logo-icon">🎯</div>
-        <div class="logo-text">
+      <div class="brand">
+        <span class="logo">🎯</span>
+        <div>
           <h1>Canva Grabber</h1>
           <span class="sub">Inspect & Drop Elements</span>
         </div>
       </div>
-      <span class="status-badge" id="canva-status">Checking...</span>
+      <span class="badge" id="status-badge">Checking...</span>
     </header>
 
-    <!-- Main Action Button -->
-    <div class="card action-card">
-      <button class="primary-btn" id="inspect-toggle-btn">
-        <span class="btn-icon" id="inspect-icon">🎯</span>
-        <span class="btn-text" id="inspect-btn-text">Activate Inspector</span>
-        <span class="shortcut-tag">Alt+G</span>
+    <!-- Activate Inspector Card -->
+    <div class="card">
+      <button class="btn-main" id="btn-toggle-inspect">
+        <span id="inspect-icon">🎯</span>
+        <span id="inspect-label">Activate Inspector</span>
+        <span class="key-tag">Alt+G</span>
       </button>
 
-      <div class="toggle-row">
-        <div class="toggle-info">
-          <span class="toggle-title">Auto-Drop to Canvas</span>
-          <span class="toggle-desc">Automatically drop onto page on click</span>
+      <div class="toggle-line">
+        <div>
+          <div class="toggle-name">Auto-Drop to Canvas</div>
+          <div class="toggle-sub">Instantly place element onto canvas on click</div>
         </div>
         <label class="switch">
-          <input type="checkbox" id="auto-insert-toggle" checked>
+          <input type="checkbox" id="toggle-auto" checked>
           <span class="slider"></span>
         </label>
       </div>
     </div>
 
-    <!-- Instructions -->
-    <div class="tips-box">
-      <div class="tips-title">🟢 Quick Steps:</div>
-      <ol class="tips-list">
-        <li>Click <b>Activate Inspector</b> (cursor turns green).</li>
-        <li>Click any graphic in Canva's Elements sidebar.</li>
-        <li>It appears right below and drops onto your canvas!</li>
+    <!-- Quick instructions -->
+    <div class="tips">
+      <div class="tips-head">🟢 Quick Instructions:</div>
+      <ol class="tips-body">
+        <li>Click <b>Activate Inspector</b> (cursor becomes green).</li>
+        <li>Click any shape or graphic in Canva's sidebar.</li>
+        <li>It appears right below and drops onto your page!</li>
       </ol>
     </div>
 
-    <!-- Selected / Latest Element Box at the Bottom -->
-    <div class="selected-section">
-      <div class="selected-header">
-        <span class="section-title">Selected Element</span>
-        <span class="badge-live" id="live-indicator">LIVE</span>
+    <!-- Selected Element Section (Bottom) -->
+    <div class="selected-wrap">
+      <div class="selected-head">
+        <span class="section-name">Selected Element</span>
+        <span class="tag-live">LIVE</span>
       </div>
 
-      <div class="selected-card" id="selected-card">
-        <div class="selected-empty" id="selected-empty">
-          <div class="empty-icon">🖼️</div>
-          <p>No element selected yet.<br>Click <b>Activate Inspector</b> & pick any graphic in Canva!</p>
+      <div class="selected-box" id="selected-box">
+        <div class="empty-hint" id="empty-hint">
+          <div style="font-size:24px;margin-bottom:4px;">🖼️</div>
+          <p>No element selected yet.<br>Click <b>Activate Inspector</b> and click any graphic in Canva!</p>
         </div>
 
-        <div class="selected-content" id="selected-content" style="display: none;">
-          <div class="selected-preview-box">
-            <img id="selected-preview-img" src="" alt="Selected Graphic" />
+        <div class="selected-item" id="selected-item" style="display:none;">
+          <div class="preview-box">
+            <img id="sel-img" src="" alt="Selected Preview">
           </div>
-          <div class="selected-details">
-            <div class="selected-title" id="selected-title">Graphic Title</div>
-            <div class="selected-meta">
-              <span class="tag-type" id="selected-type">PNG Image</span>
-              <span class="tag-time" id="selected-time">Just now</span>
+          <div class="meta-box">
+            <div class="sel-title" id="sel-title">Graphic Title</div>
+            <div class="sel-tags">
+              <span class="tag-format" id="sel-type">PNG Image</span>
             </div>
-            <div class="selected-actions">
-              <button class="btn-action-primary" id="btn-insert-selected">
-                <span>⚡ Insert into Page</span>
+            <div class="actions-row">
+              <button class="btn-action-drop" id="btn-insert-now">
+                ⚡ Insert into Page
               </button>
-              <button class="btn-action-secondary" id="btn-copy-selected" title="Copy to clipboard">
-                📋
-              </button>
-              <button class="btn-action-secondary" id="btn-download-selected" title="Download to PC">
-                💾
-              </button>
+              <button class="btn-mini" id="btn-copy" title="Copy to clipboard">📋</button>
+              <button class="btn-mini" id="btn-download" title="Download to PC">💾</button>
             </div>
           </div>
         </div>
       </div>
     </div>
 
-    <!-- Recent History (Collapsible) -->
-    <div class="recent-section">
-      <div class="recent-header">
-        <span class="recent-toggle-title" id="recent-toggle">
-          <span>Recent History (<span id="item-count">0</span>)</span>
-          <span id="recent-arrow">▾</span>
-        </span>
-        <button class="text-btn" id="clear-all-btn">Clear</button>
+    <!-- Recent History -->
+    <div class="history-wrap">
+      <div class="history-head">
+        <span>Recent Elements (<span id="history-count">0</span>)</span>
+        <button class="btn-text-clear" id="btn-clear-all">Clear</button>
       </div>
-      <div class="elements-list" id="elements-list">
-        <!-- Rendered dynamically -->
-      </div>
+      <div class="history-list" id="history-list"></div>
     </div>
 
     <footer class="footer">
-      <span>Canva Element Grabber v1.0.1</span>
+      Canva Element Grabber v2.0
     </footer>
   </div>
 

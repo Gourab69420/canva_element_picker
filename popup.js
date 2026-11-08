@@ -1,50 +1,49 @@
-// Popup script for Canva Element Grabber
+// Popup Script (v2.0)
 
 document.addEventListener('DOMContentLoaded', async () => {
-  const inspectBtn = document.getElementById('inspect-toggle-btn');
-  const inspectBtnText = document.getElementById('inspect-btn-text');
+  const inspectBtn = document.getElementById('btn-toggle-inspect');
+  const inspectLabel = document.getElementById('inspect-label');
   const inspectIcon = document.getElementById('inspect-icon');
-  const autoInsertToggle = document.getElementById('auto-insert-toggle');
-  const statusBadge = document.getElementById('canva-status');
-  const elementsList = document.getElementById('elements-list');
-  const itemCount = document.getElementById('item-count');
-  const clearAllBtn = document.getElementById('clear-all-btn');
+  const autoToggle = document.getElementById('toggle-auto');
+  const statusBadge = document.getElementById('status-badge');
+  const historyList = document.getElementById('history-list');
+  const historyCount = document.getElementById('history-count');
+  const clearBtn = document.getElementById('btn-clear-all');
 
   // Selected element card
-  const selectedEmpty = document.getElementById('selected-empty');
-  const selectedContent = document.getElementById('selected-content');
-  const selectedPreviewImg = document.getElementById('selected-preview-img');
-  const selectedTitle = document.getElementById('selected-title');
-  const selectedType = document.getElementById('selected-type');
-  const btnInsertSelected = document.getElementById('btn-insert-selected');
-  const btnCopySelected = document.getElementById('btn-copy-selected');
-  const btnDownloadSelected = document.getElementById('btn-download-selected');
+  const selectedBox = document.getElementById('selected-box');
+  const emptyHint = document.getElementById('empty-hint');
+  const selectedItem = document.getElementById('selected-item');
+  const selImg = document.getElementById('sel-img');
+  const selTitle = document.getElementById('sel-title');
+  const selType = document.getElementById('sel-type');
+  const btnInsert = document.getElementById('btn-insert-now');
+  const btnCopy = document.getElementById('btn-copy');
+  const btnDownload = document.getElementById('btn-download');
 
   let activeTab = null;
   let isCanva = false;
   let isInspectorActive = false;
-  let currentItem = null;
+  let currentSelection = null;
 
   try {
     const tabs = await chrome.tabs.query({ active: true, currentWindow: true });
     activeTab = tabs[0];
   } catch (e) {}
 
-  if (activeTab && activeTab.url && activeTab.url.includes('canva.com')) {
+  if (activeTab?.url && activeTab.url.includes('canva.com')) {
     isCanva = true;
     statusBadge.textContent = 'Canva Connected';
     statusBadge.classList.add('connected');
 
-    // Ensure content script is running
     await ensureInjected(activeTab.id);
 
-    // Query status
     chrome.tabs.sendMessage(activeTab.id, { action: 'GET_STATUS' }, (res) => {
       if (chrome.runtime.lastError) return;
-      if (res && res.success) {
+      if (res?.success) {
         isInspectorActive = res.isInspectorActive;
-        autoInsertToggle.checked = res.autoInsert;
-        updateInspectBtn();
+        autoToggle.checked = res.autoInsert;
+        updateInspectUI();
         if (res.latestItem) showSelected(res.latestItem);
       }
     });
@@ -52,16 +51,17 @@ document.addEventListener('DOMContentLoaded', async () => {
     statusBadge.textContent = 'Open Canva First';
     inspectBtn.disabled = true;
     inspectBtn.style.opacity = '0.5';
+    inspectBtn.style.cursor = 'not-allowed';
   }
 
-  // Load stored data
   loadStored();
 
+  // Listen to changes in storage and direct message
   chrome.storage.onChanged.addListener((changes, area) => {
     if (area === 'local') {
       if (changes.grabbedElements) renderHistory(changes.grabbedElements.newValue || []);
       if (changes.latestGrabbed?.newValue) showSelected(changes.latestGrabbed.newValue);
-      if (changes.autoInsert !== undefined) autoInsertToggle.checked = changes.autoInsert.newValue;
+      if (changes.autoInsert !== undefined) autoToggle.checked = changes.autoInsert.newValue;
     }
   });
 
@@ -76,15 +76,15 @@ document.addEventListener('DOMContentLoaded', async () => {
     await ensureInjected(activeTab.id);
     chrome.tabs.sendMessage(activeTab.id, { action: 'TOGGLE_INSPECT' }, (res) => {
       if (chrome.runtime.lastError) return;
-      if (res && res.success) {
+      if (res?.success) {
         isInspectorActive = res.active;
-        updateInspectBtn();
+        updateInspectUI();
       }
     });
   };
 
-  autoInsertToggle.onchange = () => {
-    const enabled = autoInsertToggle.checked;
+  autoToggle.onchange = () => {
+    const enabled = autoToggle.checked;
     chrome.storage.local.set({ autoInsert: enabled });
     if (isCanva && activeTab) {
       chrome.tabs.sendMessage(activeTab.id, { action: 'SET_AUTO_INSERT', enabled }, () => {
@@ -93,7 +93,7 @@ document.addEventListener('DOMContentLoaded', async () => {
     }
   };
 
-  clearAllBtn.onclick = () => {
+  clearBtn.onclick = () => {
     chrome.storage.local.set({ grabbedElements: [], latestGrabbed: null });
     loadStored();
     if (isCanva && activeTab) {
@@ -103,102 +103,105 @@ document.addEventListener('DOMContentLoaded', async () => {
     }
   };
 
-  btnInsertSelected.onclick = () => {
-    if (!currentItem || !isCanva || !activeTab) return;
-    chrome.tabs.sendMessage(activeTab.id, { action: 'INSERT_ITEM', item: currentItem }, () => {
+  btnInsert.onclick = () => {
+    if (!currentSelection || !isCanva || !activeTab) return;
+    chrome.tabs.sendMessage(activeTab.id, { action: 'INSERT_ITEM', item: currentSelection }, () => {
       void chrome.runtime.lastError;
-      btnInsertSelected.textContent = '✓ Placed on Canvas!';
-      setTimeout(() => (btnInsertSelected.textContent = '⚡ Insert into Page'), 1500);
+      btnInsert.textContent = '✓ Placed on Canvas!';
+      setTimeout(() => (btnInsert.textContent = '⚡ Insert into Page'), 1500);
     });
   };
 
-  btnCopySelected.onclick = async () => {
-    if (!currentItem) return;
+  btnCopy.onclick = async () => {
+    if (!currentSelection) return;
     try {
-      const res = await fetch(currentItem.dataUrl);
+      const res = await fetch(currentSelection.dataUrl);
       const blob = await res.blob();
       await navigator.clipboard.write([new ClipboardItem({ 'image/png': blob })]);
-      btnCopySelected.textContent = '✓';
-      setTimeout(() => (btnCopySelected.textContent = '📋'), 1500);
+      btnCopy.textContent = '✓';
+      setTimeout(() => (btnCopy.textContent = '📋'), 1500);
     } catch (e) {}
   };
 
-  btnDownloadSelected.onclick = () => {
-    if (!currentItem) return;
+  btnDownload.onclick = () => {
+    if (!currentSelection) return;
     const a = document.createElement('a');
-    if (currentItem.rawSvg) {
-      a.href = URL.createObjectURL(new Blob([currentItem.rawSvg], { type: 'image/svg+xml' }));
+    if (currentSelection.rawSvg) {
+      a.href = URL.createObjectURL(new Blob([currentSelection.rawSvg], { type: 'image/svg+xml' }));
       a.download = `shape_${Date.now()}.svg`;
     } else {
-      a.href = currentItem.dataUrl;
+      a.href = currentSelection.dataUrl;
       a.download = `graphic_${Date.now()}.png`;
     }
     a.click();
   };
 
-  function updateInspectBtn() {
+  function updateInspectUI() {
     if (isInspectorActive) {
       inspectBtn.classList.add('active');
       inspectIcon.textContent = '🟢';
-      inspectBtnText.textContent = 'Inspector ACTIVE (Click Canva)';
+      inspectLabel.textContent = 'Inspector ACTIVE (Click in Canva)';
     } else {
       inspectBtn.classList.remove('active');
       inspectIcon.textContent = '🎯';
-      inspectBtnText.textContent = 'Activate Inspector';
+      inspectLabel.textContent = 'Activate Inspector';
     }
   }
 
   function showSelected(item) {
     if (!item) return;
-    currentItem = item;
-    selectedEmpty.style.display = 'none';
-    selectedContent.style.display = 'flex';
-    selectedPreviewImg.src = item.dataUrl;
-    selectedTitle.textContent = item.title || 'Canva Graphic';
-    selectedType.textContent = item.type === 'svg' ? 'SVG Shape' : 'PNG Image';
+    currentSelection = item;
+    emptyHint.style.display = 'none';
+    selectedItem.style.display = 'flex';
+    selImg.src = item.dataUrl;
+    selTitle.textContent = item.title || 'Canva Element';
+    selType.textContent = item.type === 'svg' ? 'SVG Shape' : 'PNG Image';
+
+    selectedBox.classList.add('highlight');
+    setTimeout(() => selectedBox.classList.remove('highlight'), 1200);
   }
 
   function loadStored() {
     chrome.storage.local.get(['grabbedElements', 'latestGrabbed', 'autoInsert'], (res) => {
-      if (res.autoInsert !== undefined) autoInsertToggle.checked = res.autoInsert;
+      if (res.autoInsert !== undefined) autoToggle.checked = res.autoInsert;
       if (res.latestGrabbed) showSelected(res.latestGrabbed);
       else if (res.grabbedElements?.length) showSelected(res.grabbedElements[0]);
       else {
-        selectedEmpty.style.display = 'block';
-        selectedContent.style.display = 'none';
-        currentItem = null;
+        emptyHint.style.display = 'block';
+        selectedItem.style.display = 'none';
+        currentSelection = null;
       }
       renderHistory(res.grabbedElements || []);
     });
   }
 
   function renderHistory(items) {
-    itemCount.textContent = items.length;
+    historyCount.textContent = items.length;
     if (!items.length) {
-      elementsList.innerHTML = '';
+      historyList.innerHTML = '';
       return;
     }
-    elementsList.innerHTML = '';
+    historyList.innerHTML = '';
     items.forEach(item => {
       const row = document.createElement('div');
-      row.className = 'element-item';
+      row.className = 'hist-item';
 
       const img = document.createElement('img');
       img.src = item.dataUrl;
 
       const title = document.createElement('div');
-      title.className = 'element-item-title';
+      title.className = 'hist-title';
       title.textContent = item.title;
 
       const pickBtn = document.createElement('button');
-      pickBtn.className = 'insert-item-btn';
+      pickBtn.className = 'hist-pick';
       pickBtn.textContent = 'Select';
       pickBtn.onclick = () => showSelected(item);
 
       row.appendChild(img);
       row.appendChild(title);
       row.appendChild(pickBtn);
-      elementsList.appendChild(row);
+      historyList.appendChild(row);
     });
   }
 
@@ -209,7 +212,7 @@ document.addEventListener('DOMContentLoaded', async () => {
           try {
             await chrome.scripting.insertCSS({ target: { tabId }, files: ['content.css'] });
             await chrome.scripting.executeScript({ target: { tabId }, files: ['content.js'] });
-            setTimeout(resolve, 120);
+            setTimeout(resolve, 100);
           } catch (e) {
             resolve();
           }

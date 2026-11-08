@@ -1,32 +1,32 @@
-/* Canva Element Grabber Stylesheet */
+/* Canva Element Grabber Styles */
 
-/* Green Screen Border and Cursor when active */
-html.ceg-inspecting body {
+/* 1. Neon Green Cursor & Screen Border */
+html.ceg-active body {
   outline: 4px solid #00ff66 !important;
   outline-offset: -4px !important;
 }
 
-html.ceg-inspecting,
-html.ceg-inspecting *,
-body.ceg-inspecting,
-body.ceg-inspecting * {
+html.ceg-active,
+html.ceg-active *,
+body.ceg-active,
+body.ceg-active * {
   cursor: url("data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAACAAAAAgCAYAAABzenr0AAAAlElEQVR42u2WSw7AIAhEPVwPP7eyiyb9JMUhCsICE3a0vOgM0Nr8wU9sPWj96HcUQAFsAngU/y7+hXBzhFxYBnG6bm0YQYBcNYZPswgx+qHUCc0gQJQ+asWw0ASzGZsFyzYF+VhTABoALibfHIXFmNJnc6/8AojXQLgLEveB4E4YPgtSTMMU+0CKjSjFTlhreQG4AJykNcRRwroD6AAAAABJRU5ErkJggg==") 16 16, crosshair !important;
 }
 
-/* Extension UI excludes crosshair */
-.ceg-root-element,
-.ceg-root-element * {
+/* Extension UI reset cursor */
+.ceg-ui-element,
+.ceg-ui-element * {
   cursor: default !important;
   box-sizing: border-box !important;
 }
 
-.ceg-root-element button,
-.ceg-root-element button * {
+.ceg-ui-element button,
+.ceg-ui-element button * {
   cursor: pointer !important;
 }
 
-/* Top Banner */
-.ceg-top-banner {
+/* 2. Top Banner */
+.ceg-banner {
   position: fixed;
   top: 14px;
   left: 50%;
@@ -35,7 +35,7 @@ body.ceg-inspecting * {
   display: flex;
   align-items: center;
   gap: 12px;
-  background: #0f172a;
+  background: #09090b;
   border: 2px solid #00ff66;
   border-radius: 30px;
   padding: 8px 18px;
@@ -46,7 +46,7 @@ body.ceg-inspecting * {
   font-weight: 600;
 }
 
-.ceg-pulse-circle {
+.ceg-dot {
   width: 10px;
   height: 10px;
   background: #00ff66;
@@ -54,23 +54,23 @@ body.ceg-inspecting * {
   box-shadow: 0 0 10px #00ff66;
 }
 
-.ceg-btn-exit {
-  background: #1e293b;
-  border: 1px solid #334155;
-  color: #94a3b8;
+.ceg-banner-close {
+  background: #18181b;
+  border: 1px solid #3f3f46;
+  color: #a1a1aa;
   border-radius: 12px;
   padding: 3px 10px;
   font-size: 11px;
   font-weight: 600;
 }
 
-.ceg-btn-exit:hover {
+.ceg-banner-close:hover {
   background: #ef4444;
   color: #ffffff;
 }
 
-/* Hover Overlay */
-.ceg-overlay {
+/* 3. Hover Bounding Box */
+.ceg-bounding-overlay {
   position: absolute;
   pointer-events: none;
   z-index: 2147483640;
@@ -97,8 +97,8 @@ body.ceg-inspecting * {
   pointer-events: none;
 }
 
-/* Floating Bottom Bar */
-.ceg-bar {
+/* 4. Floating Bottom Pill */
+.ceg-floating-pill {
   position: fixed;
   bottom: 24px;
   right: 24px;
@@ -117,14 +117,14 @@ body.ceg-inspecting * {
   user-select: none;
 }
 
-.ceg-bar-title {
+.ceg-pill-title {
   font-size: 12px;
   font-weight: 700;
   color: #00ff66;
   padding-right: 4px;
 }
 
-.ceg-btn {
+.ceg-pill-btn {
   display: inline-flex;
   align-items: center;
   gap: 6px;
@@ -138,20 +138,20 @@ body.ceg-inspecting * {
   transition: all 0.15s ease;
 }
 
-.ceg-btn:hover {
+.ceg-pill-btn:hover {
   background: #3f3f46;
   color: #ffffff;
 }
 
-.ceg-btn.active {
+.ceg-pill-btn.active {
   background: #059669 !important;
   border-color: #00ff66 !important;
   color: #ffffff !important;
   box-shadow: 0 0 12px rgba(0, 255, 102, 0.6) !important;
 }
 
-/* Tray / Drawer */
-.ceg-drawer {
+/* 5. Tray Drawer */
+.ceg-tray-drawer {
   position: fixed;
   bottom: 76px;
   right: 24px;
@@ -169,7 +169,7 @@ body.ceg-inspecting * {
   color: #f4f4f5;
 }
 
-.ceg-drawer-head {
+.ceg-tray-header {
   display: flex;
   justify-content: space-between;
   align-items: center;
@@ -179,7 +179,7 @@ body.ceg-inspecting * {
   font-size: 13px;
 }
 
-.ceg-btn-sub {
+.ceg-tray-action {
   background: none;
   border: none;
   color: #a1a1aa;
@@ -187,11 +187,11 @@ body.ceg-inspecting * {
   cursor: pointer;
 }
 
-.ceg-btn-sub:hover {
+.ceg-tray-action:hover {
   color: #ffffff;
 }
 
-.ceg-drawer-hint {
+.ceg-tray-hint {
   font-size: 11px;
   color: #a1a1aa;
   padding: 6px 14px;
@@ -199,7 +199,7 @@ body.ceg-inspecting * {
   border-bottom: 1px solid #27272a;
 }
 
-.ceg-drawer-items {
+.ceg-tray-list {
   padding: 8px;
   overflow-y: auto;
   display: flex;
@@ -208,7 +208,7 @@ body.ceg-inspecting * {
   max-height: 320px;
 }
 
-.ceg-drawer-card {
+.ceg-tray-card {
   display: flex;
   align-items: center;
   gap: 10px;
@@ -218,11 +218,11 @@ body.ceg-inspecting * {
   border-radius: 8px;
 }
 
-.ceg-drawer-card:hover {
+.ceg-tray-card:hover {
   border-color: #00ff66;
 }
 
-.ceg-drawer-card img {
+.ceg-tray-card img {
   width: 40px;
   height: 40px;
   object-fit: contain;
@@ -247,17 +247,17 @@ body.ceg-inspecting * {
   color: #fff;
 }
 
-.ceg-btn-primary {
+.ceg-btn-green {
   background: #059669;
   border-color: #00ff66;
   color: #fff;
 }
 
-.ceg-btn-primary:hover {
+.ceg-btn-green:hover {
   background: #047857;
 }
 
-/* Toast */
+/* 6. Toast */
 .ceg-toast {
   position: fixed;
   top: 70px;
@@ -276,6 +276,6 @@ body.ceg-inspecting * {
   pointer-events: none;
 }
 
-.ceg-toast-error {
+.ceg-toast-err {
   border-color: #ef4444;
 }
