@@ -801,15 +801,6 @@
 
       document.dispatchEvent(pasteEvent);
 
-      // Copy to system clipboard silently without throwing error if not focused
-      try {
-        if (document.hasFocus() && navigator.clipboard && navigator.clipboard.write) {
-          navigator.clipboard.write([
-            new ClipboardItem({ 'image/png': blob })
-          ]).catch(() => {});
-        }
-      } catch (clipErr) {}
-
       showToast('Element placed onto canvas');
     } catch (e) {
       console.error('Drop error:', e);
