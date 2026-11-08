@@ -1,4 +1,4 @@
-/* Popup Styles */
+/* Popup Styles (#5E50E2 Canva Purple Theme) */
 
 * {
   box-sizing: border-box;
@@ -8,9 +8,9 @@
 
 body {
   width: 350px;
-  background-color: #0b0c10;
+  background-color: #0d0e13;
   color: #f4f4f5;
-  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+  font-family: "Canva Sans", -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
   font-size: 13px;
   line-height: 1.4;
   overflow-x: hidden;
@@ -43,7 +43,7 @@ body {
 .brand h1 {
   font-size: 15px;
   font-weight: 700;
-  color: #00ff66;
+  color: #5E50E2;
 }
 
 .brand .sub {
@@ -61,14 +61,14 @@ body {
 }
 
 .badge.connected {
-  background: rgba(0, 255, 102, 0.15);
-  color: #00ff66;
-  border: 1px solid rgba(0, 255, 102, 0.35);
+  background: rgba(94, 80, 226, 0.15);
+  color: #5E50E2;
+  border: 1px solid rgba(94, 80, 226, 0.35);
 }
 
 /* Card */
 .card {
-  background: #14151a;
+  background: #15161c;
   border: 1px solid #27272a;
   border-radius: 12px;
   padding: 12px;
@@ -84,20 +84,19 @@ body {
   gap: 8px;
   width: 100%;
   padding: 10px 14px;
-  background: #059669;
+  background: #5E50E2;
   color: #ffffff;
-  border: 1px solid #00ff66;
+  border: 1px solid #5E50E2;
   border-radius: 8px;
   font-size: 13px;
   font-weight: 600;
   cursor: pointer;
-  box-shadow: 0 0 12px rgba(0, 255, 102, 0.3);
+  box-shadow: 0 4px 12px rgba(94, 80, 226, 0.3);
   transition: all 0.2s ease;
 }
 
 .btn-main:hover {
-  background: #047857;
-  box-shadow: 0 0 16px rgba(0, 255, 102, 0.5);
+  background: #4d3ec9;
 }
 
 .btn-main.active {
@@ -171,12 +170,12 @@ body {
 }
 
 input:checked + .slider {
-  background-color: #00ff66;
+  background-color: #5E50E2;
 }
 
 input:checked + .slider:before {
   transform: translateX(16px);
-  background-color: #09090b;
+  background-color: #ffffff;
 }
 
 /* Tips */
@@ -190,7 +189,7 @@ input:checked + .slider:before {
 
 .tips-head {
   font-weight: 600;
-  color: #00ff66;
+  color: #5E50E2;
   margin-bottom: 2px;
 }
 
@@ -225,15 +224,15 @@ input:checked + .slider:before {
 .tag-live {
   font-size: 9px;
   font-weight: 700;
-  color: #00ff66;
-  background: rgba(0, 255, 102, 0.15);
-  border: 1px solid rgba(0, 255, 102, 0.35);
+  color: #5E50E2;
+  background: rgba(94, 80, 226, 0.15);
+  border: 1px solid rgba(94, 80, 226, 0.35);
   padding: 1px 6px;
   border-radius: 10px;
 }
 
 .selected-box {
-  background: #14151a;
+  background: #15161c;
   border: 1.5px solid #27272a;
   border-radius: 10px;
   padding: 10px;
@@ -241,8 +240,8 @@ input:checked + .slider:before {
 }
 
 .selected-box.highlight {
-  border-color: #00ff66;
-  box-shadow: 0 0 14px rgba(0, 255, 102, 0.3);
+  border-color: #5E50E2;
+  box-shadow: 0 0 14px rgba(94, 80, 226, 0.3);
 }
 
 .empty-hint {
@@ -303,11 +302,11 @@ input:checked + .slider:before {
 .tag-format {
   font-size: 9px;
   font-weight: 700;
-  color: #00ff66;
-  background: rgba(0, 255, 102, 0.1);
+  color: #5E50E2;
+  background: rgba(94, 80, 226, 0.12);
   padding: 2px 6px;
   border-radius: 4px;
-  border: 1px solid rgba(0, 255, 102, 0.3);
+  border: 1px solid rgba(94, 80, 226, 0.3);
 }
 
 .actions-row {
@@ -320,8 +319,8 @@ input:checked + .slider:before {
 .btn-action-drop {
   flex: 1;
   padding: 6px 10px;
-  background: #059669;
-  border: 1px solid #00ff66;
+  background: #5E50E2;
+  border: 1px solid #5E50E2;
   color: #ffffff;
   border-radius: 6px;
   font-size: 11px;
@@ -330,7 +329,7 @@ input:checked + .slider:before {
 }
 
 .btn-action-drop:hover {
-  background: #047857;
+  background: #4d3ec9;
 }
 
 .btn-mini {
@@ -419,13 +418,13 @@ input:checked + .slider:before {
   font-size: 10px;
   border-radius: 4px;
   background: #27272a;
-  color: #00ff66;
+  color: #5E50E2;
   border: 1px solid #3f3f46;
   cursor: pointer;
 }
 
 .hist-pick:hover {
-  background: #059669;
+  background: #5E50E2;
   color: #fff;
 }
 
