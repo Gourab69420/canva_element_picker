@@ -878,18 +878,8 @@
           for (let i = 0; i < 6 && f; i++) {
             const p = f.memoizedProps;
             if (p) {
-              for (const prop of ['screenUrl', 'originalUrl', 'mediaUrl', 'fullUrl', 'largeUrl', 'url', 'src']) {
-                if (typeof p[prop] === 'string' && p[prop].startsWith('http') && !p[prop].includes('thumbnail')) {
-                  return p[prop];
-                }
-              }
-              if (p.asset && typeof p.asset === 'object') {
-                for (const prop of ['screenUrl', 'originalUrl', 'url', 'previewUrl']) {
-                  if (typeof p.asset[prop] === 'string' && p.asset[prop].startsWith('http') && !p.asset[prop].includes('thumbnail')) {
-                    return p.asset[prop];
-                  }
-                }
-              }
+              const url = extractUrlFromProps(p);
+              if (url) return url;
             }
             f = f.return;
           }
@@ -897,6 +887,29 @@
         cur = cur.parentElement;
       }
     } catch (e) {}
+    return null;
+  }
+
+  function extractUrlFromProps(obj, depth = 0) {
+    if (!obj || typeof obj !== 'object' || depth > 3) return null;
+    for (const key of ['screen2x', 'screen', 'original', 'master', 'exportUrl', 'screenUrl', 'originalUrl', 'mediaUrl', 'fullUrl']) {
+      if (typeof obj[key] === 'string' && obj[key].startsWith('http') && !obj[key].includes('thumbnail')) {
+        return obj[key];
+      }
+    }
+    for (const sub of ['urls', 'asset', 'media', 'item', 'representations']) {
+      if (obj[sub]) {
+        if (Array.isArray(obj[sub])) {
+          for (const item of obj[sub]) {
+            const res = extractUrlFromProps(item, depth + 1);
+            if (res) return res;
+          }
+        } else if (typeof obj[sub] === 'object') {
+          const res = extractUrlFromProps(obj[sub], depth + 1);
+          if (res) return res;
+        }
+      }
+    }
     return null;
   }
 

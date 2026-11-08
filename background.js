@@ -59,26 +59,46 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
  * Tests screen_2x, screen, original, thumbnail_large, and uncompressed Canva CDN endpoints.
  */
 async function fetchHighResAsset(originalUrl) {
-  const candidates = generateHighResCandidates(originalUrl);
-
-  // Try high-resolution candidates first (skip originalUrl on first pass)
-  for (const url of candidates) {
-    if (url === originalUrl) continue;
-    try {
-      const resp = await fetch(url, { mode: 'cors' });
-      if (resp.ok) {
-        const mimeType = resp.headers.get('content-type') || 'image/png';
-        const blob = await resp.blob();
-        // A high-resolution asset is larger than a tiny thumbnail
-        if (blob.size > 20000) {
-          console.log(`[HighRes] Found high-res asset (${blob.size} bytes): ${url}`);
-          return await blobToBase64(blob, mimeType, url);
-        }
-      }
-    } catch (e) {}
+  if (!originalUrl) throw new Error('Invalid URL');
+  if (originalUrl.startsWith('data:')) {
+    return { dataUrl: originalUrl, mimeType: 'image/png', size: originalUrl.length, sourceUrl: originalUrl };
   }
 
-  // Fallback to original URL
+  // 1. Pick only the top 2 best candidate URLs (e.g. s2 or s)
+  const candidates = generateHighResCandidates(originalUrl);
+  const bestCandidates = candidates.filter(u => u !== originalUrl).slice(0, 2);
+
+  if (bestCandidates.length > 0) {
+    try {
+      // Fast parallel probe with a 350ms abort timeout: 0 delay!
+      const probePromise = Promise.any(bestCandidates.map(async (url) => {
+        const controller = new AbortController();
+        const timeoutId = setTimeout(() => controller.abort(), 350);
+        try {
+          const resp = await fetch(url, { mode: 'cors', signal: controller.signal });
+          clearTimeout(timeoutId);
+          if (resp.ok) {
+            const mimeType = resp.headers.get('content-type') || 'image/png';
+            const blob = await resp.blob();
+            if (blob.size > 20000) {
+              return await blobToBase64(blob, mimeType, url);
+            }
+          }
+          throw new Error('Not high-res');
+        } catch (err) {
+          clearTimeout(timeoutId);
+          throw err;
+        }
+      }));
+
+      const result = await probePromise;
+      if (result) return result;
+    } catch (e) {
+      // Parallel probe timed out or returned 403/404, fall straight to instant direct fetch
+    }
+  }
+
+  // 2. Instant direct fetch of originalUrl (already cached in browser memory: ~15ms!)
   const resp = await fetch(originalUrl, { mode: 'cors' });
   if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
   const mimeType = resp.headers.get('content-type') || 'image/png';
@@ -93,67 +113,20 @@ function generateHighResCandidates(rawUrl) {
 
     if (u.hostname.includes('canva') || u.hostname.includes('canvamedia')) {
       const path = u.pathname;
-
-      // Extract base prefix and extension from Canva CDN URL
-      // Matches both full names (thumbnail, screen) and Canva shorthands (tl, s, s2, m, l, xl)
       const match = path.match(/(.*\/)(tl|t|s2|s|m|l|xl|thumbnail(?:_large)?|screen(?:_2x)?|preview|master|original)(\.[a-zA-Z0-9]+)/i);
 
       if (match) {
         const prefix = match[1]; // e.g. /RFtO8/MAGV5TRftO8/1/
         const ext = match[3];    // e.g. .png or .jpg
 
-        // 1. Tier 1: s2 / screen_2x (Retina 2K-4K unwatermarked master asset)
+        // Probe only the 2 absolute highest tiers: s2 (Retina 2K) and s (Screen Full HD)
         list.push(`${u.origin}${prefix}s2${ext}`);
-        list.push(`${u.origin}${prefix}s2.png`);
-        list.push(`${u.origin}${prefix}s2.jpg`);
-        list.push(`${u.origin}${prefix}screen_2x${ext}`);
-        list.push(`${u.origin}${prefix}screen_2x.png`);
-        list.push(`${u.origin}${prefix}screen_2x.jpg`);
-
-        // 2. Tier 2: s / screen (Full HD 1080p-2K screen asset)
         list.push(`${u.origin}${prefix}s${ext}`);
-        list.push(`${u.origin}${prefix}s.png`);
-        list.push(`${u.origin}${prefix}s.jpg`);
-        list.push(`${u.origin}${prefix}screen${ext}`);
-        list.push(`${u.origin}${prefix}screen.png`);
-        list.push(`${u.origin}${prefix}screen.jpg`);
-
-        // 3. Tier 3: l / m / xl / original / master
-        list.push(`${u.origin}${prefix}l${ext}`);
-        list.push(`${u.origin}${prefix}l.png`);
-        list.push(`${u.origin}${prefix}m${ext}`);
-        list.push(`${u.origin}${prefix}m.png`);
-        list.push(`${u.origin}${prefix}original${ext}`);
-        list.push(`${u.origin}${prefix}original.png`);
-        list.push(`${u.origin}${prefix}master${ext}`);
-
-        // 4. Tier 4: tl / thumbnail_large (800-1000px asset)
-        list.push(`${u.origin}${prefix}tl${ext}`);
-        list.push(`${u.origin}${prefix}tl.png`);
-        list.push(`${u.origin}${prefix}thumbnail_large${ext}`);
-        list.push(`${u.origin}${prefix}thumbnail_large.png`);
       }
-
-      // 5. Clean URL without downscaling parameters
-      const uClean = new URL(rawUrl);
-      uClean.searchParams.delete('w');
-      uClean.searchParams.delete('width');
-      uClean.searchParams.delete('h');
-      uClean.searchParams.delete('height');
-      uClean.searchParams.delete('fit');
-      list.push(uClean.toString());
-
-      // 6. Dynamic high-res query parameters (w=3200)
-      const uHigh = new URL(rawUrl);
-      uHigh.searchParams.set('w', '3200');
-      uHigh.searchParams.delete('h');
-      uHigh.searchParams.delete('fit');
-      list.push(uHigh.toString());
     }
   } catch (e) {}
 
-  list.push(rawUrl);
-  return [...new Set(list)];
+  return list;
 }
 
 function blobToBase64(blob, mimeType, sourceUrl) {
