@@ -18,6 +18,7 @@
   console.log('Canva Element Grabber v2.5 loaded');
 
   // State
+  const MAX_TRAY_CAPACITY = 10;
   let isInspectorActive = false;
   let autoInsert = true;
   let autoSwitchToMouse = true;
@@ -39,7 +40,7 @@
     chrome.storage.local.get(['autoInsert', 'autoSwitchToMouse', 'grabbedElements'], (res) => {
       if (res.autoInsert !== undefined) autoInsert = res.autoInsert;
       if (res.autoSwitchToMouse !== undefined) autoSwitchToMouse = res.autoSwitchToMouse;
-      if (res.grabbedElements) grabbedList = res.grabbedElements;
+      if (res.grabbedElements) grabbedList = res.grabbedElements.slice(0, MAX_TRAY_CAPACITY);
       updateTrayUI();
     });
   }
@@ -74,7 +75,7 @@
             <polyline points="22 12 16 12 14 15 10 15 8 12 2 12"/>
             <path d="M5.45 5.11L2 12v6a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2v-6l-3.45-6.89A2 2 0 0 0 16.76 4H7.24a2 2 0 0 0-1.79 1.11z"/>
           </svg>
-          <b>Grabbed Elements</b>
+          <b id="ceg-tray-header-title">Grabbed Elements (0/${MAX_TRAY_CAPACITY})</b>
         </div>
         <div style="display:flex;gap:6px;">
           <button class="ceg-tray-action" id="ceg-tray-clear">Clear</button>
@@ -83,6 +84,7 @@
           </button>
         </div>
       </div>
+      <div id="ceg-tray-banner-container"></div>
       <div class="ceg-tray-settings">
         <div class="ceg-setting-row">
           <span class="ceg-setting-label">
@@ -271,7 +273,7 @@
         <path d="M5.45 5.11L2 12v6a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2v-6l-3.45-6.89A2 2 0 0 0 16.76 4H7.24a2 2 0 0 0-1.79 1.11z"/>
       </svg>
       <span class="ceg-footer-tray-text">Tray</span>
-      <span class="ceg-footer-tray-count" id="ceg-footer-tray-count">${grabbedList.length}</span>
+      <span class="ceg-footer-tray-count" id="ceg-footer-tray-count">${grabbedList.length}/${MAX_TRAY_CAPACITY}</span>
     `;
 
     trayBtn.onclick = (e) => {
@@ -347,7 +349,27 @@
 
   function updateTrayButtonDisplay() {
     const countEl = document.getElementById('ceg-footer-tray-count');
-    if (countEl) countEl.textContent = grabbedList.length;
+    if (countEl) {
+      countEl.textContent = `${grabbedList.length}/${MAX_TRAY_CAPACITY}`;
+      countEl.classList.toggle('ceg-count-full', grabbedList.length >= MAX_TRAY_CAPACITY);
+    }
+    const headerTitle = document.getElementById('ceg-tray-header-title');
+    if (headerTitle) {
+      headerTitle.textContent = `Grabbed Elements (${grabbedList.length}/${MAX_TRAY_CAPACITY})`;
+    }
+    const bannerContainer = document.getElementById('ceg-tray-banner-container');
+    if (bannerContainer) {
+      if (grabbedList.length >= MAX_TRAY_CAPACITY) {
+        bannerContainer.innerHTML = `
+          <div class="ceg-tray-full-banner">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg>
+            Tray is full (${MAX_TRAY_CAPACITY}/${MAX_TRAY_CAPACITY}). Delete some items to grab more.
+          </div>
+        `;
+      } else {
+        bannerContainer.innerHTML = '';
+      }
+    }
   }
 
   // 4. Watch for DOM changes & URL changes with debouncing
@@ -601,6 +623,16 @@
     e.stopPropagation();
     e.stopImmediatePropagation();
 
+    // Check capacity: user must delete items once 10 items are reached
+    if (grabbedList.length >= MAX_TRAY_CAPACITY) {
+      showToast(`Tray is full (${MAX_TRAY_CAPACITY}/${MAX_TRAY_CAPACITY}). Delete items from Tray to grab more.`, 'error');
+      if (trayDrawer) {
+        trayDrawer.style.display = 'flex';
+        renderTrayItems();
+      }
+      return;
+    }
+
     const target = currentTarget || findGraphicAtPoint(e.clientX, e.clientY);
     if (!target) {
       showToast('No graphic detected here. Click directly on an icon or shape.', 'error');
@@ -620,7 +652,7 @@
   }
 
   /**
-   * Process & Extract Target Graphic
+   * Process & Extract Target Graphic in Highest Quality
    */
   async function processTarget(target) {
     try {
@@ -648,12 +680,14 @@
         rawSvg = new XMLSerializer().serializeToString(clone);
         const svgUrl = 'data:image/svg+xml;charset=utf-8,' + encodeURIComponent(rawSvg);
 
-        const pngUrl = await svgToPng(svgUrl, w * 2, h * 2);
+        // Ultra high resolution 4x rendering for canvas artboard
+        const pngUrl = await svgToPng(svgUrl, w, h);
         dataUrl = pngUrl || svgUrl;
         title = el.getAttribute('aria-label') || 'Vector Shape';
 
       } else if (type === 'img') {
-        const src = target.src || el.currentSrc || el.src || el.getAttribute('data-src');
+        // Retrieve the best high-res source without thumbnail compression
+        const src = getBestImageSrc(el, target.src);
         title = el.alt || 'Canva Graphic';
 
         try {
@@ -666,7 +700,8 @@
         const bg = window.getComputedStyle(el).backgroundImage;
         const match = bg.match(/url\(["']?([^"']+)["']?\)/);
         if (match && match[1]) {
-          const res = await fetchViaBg(match[1]);
+          const cleanUrl = cleanCanvaImageUrl(match[1]);
+          const res = await fetchViaBg(cleanUrl);
           dataUrl = res.dataUrl;
         }
       }
@@ -684,7 +719,9 @@
       };
 
       grabbedList.unshift(item);
-      if (grabbedList.length > 50) grabbedList.pop();
+      if (grabbedList.length > MAX_TRAY_CAPACITY) {
+        grabbedList = grabbedList.slice(0, MAX_TRAY_CAPACITY);
+      }
 
       if (chrome.runtime?.id) {
         chrome.storage.local.set({
@@ -711,15 +748,61 @@
     }
   }
 
+  function getBestImageSrc(el, fallbackSrc) {
+    let bestSrc = fallbackSrc || el.currentSrc || el.src || el.getAttribute('data-src') || '';
+
+    // Inspect srcset to pick highest resolution candidate
+    const srcset = el.getAttribute('srcset') || el.srcset;
+    if (srcset && typeof srcset === 'string') {
+      const candidates = srcset.split(',').map(s => {
+        const parts = s.trim().split(/\s+/);
+        const url = parts[0];
+        let score = 0;
+        if (parts[1]) {
+          if (parts[1].endsWith('w')) score = parseInt(parts[1], 10) || 0;
+          else if (parts[1].endsWith('x')) score = (parseFloat(parts[1]) || 1) * 1000;
+        }
+        return { url, score };
+      });
+      candidates.sort((a, b) => b.score - a.score);
+      if (candidates.length > 0 && candidates[0].url) {
+        bestSrc = candidates[0].url;
+      }
+    }
+
+    return cleanCanvaImageUrl(bestSrc);
+  }
+
+  function cleanCanvaImageUrl(url) {
+    if (!url) return url;
+    try {
+      if (url.startsWith('data:')) return url;
+      const u = new URL(url);
+      if (u.hostname.includes('canva') || u.hostname.includes('canvamedia')) {
+        u.searchParams.delete('w');
+        u.searchParams.delete('width');
+        u.searchParams.delete('h');
+        u.searchParams.delete('height');
+        u.searchParams.delete('fit');
+        return u.toString();
+      }
+    } catch (e) {}
+    return url;
+  }
+
   function svgToPng(svgUrl, width, height) {
     return new Promise((resolve) => {
       const img = new Image();
       img.onload = () => {
         try {
           const canvas = document.createElement('canvas');
-          canvas.width = Math.max(width, 600);
-          canvas.height = Math.max(height, 600);
+          // High resolution 4x scaling (minimum 2400x2400)
+          const scale = 4;
+          canvas.width = Math.max(Math.round((width || 300) * scale), 2400);
+          canvas.height = Math.max(Math.round((height || 300) * scale), 2400);
           const ctx = canvas.getContext('2d');
+          ctx.imageSmoothingEnabled = true;
+          ctx.imageSmoothingQuality = 'high';
           ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
           resolve(canvas.toDataURL('image/png'));
         } catch (e) {

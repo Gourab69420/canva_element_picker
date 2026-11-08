@@ -185,6 +185,24 @@ body.ceg-active * {
   border: 1.5px solid #ffffff;
 }
 
+.ceg-footer-tray-count.ceg-count-full {
+  color: #dc2626 !important;
+  font-weight: 700 !important;
+}
+
+.ceg-tray-full-banner {
+  background: rgba(239, 68, 68, 0.16);
+  border-bottom: 1px solid rgba(239, 68, 68, 0.35);
+  color: #fca5a5;
+  font-size: 11px;
+  font-weight: 600;
+  padding: 6px 12px;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  line-height: 1.3;
+}
+
 /* 5. Tray Drawer (Opens upward in bottom-right) */
 .ceg-tray-drawer {
   position: fixed;

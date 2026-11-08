@@ -202,7 +202,7 @@ document.addEventListener('DOMContentLoaded', async () => {
   }
 
   function renderHistory(items) {
-    historyCount.textContent = items.length;
+    historyCount.textContent = `${items.length}/10`;
     if (!items.length) {
       historyList.innerHTML = '';
       return;
