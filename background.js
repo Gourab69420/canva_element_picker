@@ -95,34 +95,42 @@ function generateHighResCandidates(rawUrl) {
       const path = u.pathname;
 
       // Extract base prefix and extension from Canva CDN URL
-      // Pattern e.g.: /MADat6J8e4Q/1/thumbnail.jpg or /MADat6J8e4Q/0/thumbnail.png
-      const match = path.match(/(.*\/)(thumbnail(?:_large)?|screen(?:_2x)?|preview|master|original)(\.[a-zA-Z0-9]+)/i);
+      // Matches both full names (thumbnail, screen) and Canva shorthands (tl, s, s2, m, l, xl)
+      const match = path.match(/(.*\/)(tl|t|s2|s|m|l|xl|thumbnail(?:_large)?|screen(?:_2x)?|preview|master|original)(\.[a-zA-Z0-9]+)/i);
 
       if (match) {
-        const prefix = match[1]; // e.g. /MADat6J8e4Q/1/
-        const ext = match[3];    // e.g. .jpg or .png
+        const prefix = match[1]; // e.g. /RFtO8/MAGV5TRftO8/1/
+        const ext = match[3];    // e.g. .png or .jpg
 
-        // 1. screen_2x (Retina 2x full resolution asset)
+        // 1. Tier 1: s2 / screen_2x (Retina 2K-4K unwatermarked master asset)
+        list.push(`${u.origin}${prefix}s2${ext}`);
+        list.push(`${u.origin}${prefix}s2.png`);
+        list.push(`${u.origin}${prefix}s2.jpg`);
         list.push(`${u.origin}${prefix}screen_2x${ext}`);
-        list.push(`${u.origin}${prefix}screen_2x.jpg`);
         list.push(`${u.origin}${prefix}screen_2x.png`);
+        list.push(`${u.origin}${prefix}screen_2x.jpg`);
 
-        // 2. screen (Full screen 1080p-2K asset)
+        // 2. Tier 2: s / screen (Full HD 1080p-2K screen asset)
+        list.push(`${u.origin}${prefix}s${ext}`);
+        list.push(`${u.origin}${prefix}s.png`);
+        list.push(`${u.origin}${prefix}s.jpg`);
         list.push(`${u.origin}${prefix}screen${ext}`);
-        list.push(`${u.origin}${prefix}screen.jpg`);
         list.push(`${u.origin}${prefix}screen.png`);
+        list.push(`${u.origin}${prefix}screen.jpg`);
 
-        // 3. original / master (Uncompressed master source)
+        // 3. Tier 3: l / m / xl / original / master
+        list.push(`${u.origin}${prefix}l${ext}`);
+        list.push(`${u.origin}${prefix}l.png`);
+        list.push(`${u.origin}${prefix}m${ext}`);
+        list.push(`${u.origin}${prefix}m.png`);
         list.push(`${u.origin}${prefix}original${ext}`);
-        list.push(`${u.origin}${prefix}original.jpg`);
         list.push(`${u.origin}${prefix}original.png`);
         list.push(`${u.origin}${prefix}master${ext}`);
-        list.push(`${u.origin}${prefix}master.jpg`);
-        list.push(`${u.origin}${prefix}master.png`);
 
-        // 4. thumbnail_large (800-1000px asset)
+        // 4. Tier 4: tl / thumbnail_large (800-1000px asset)
+        list.push(`${u.origin}${prefix}tl${ext}`);
+        list.push(`${u.origin}${prefix}tl.png`);
         list.push(`${u.origin}${prefix}thumbnail_large${ext}`);
-        list.push(`${u.origin}${prefix}thumbnail_large.jpg`);
         list.push(`${u.origin}${prefix}thumbnail_large.png`);
       }
 

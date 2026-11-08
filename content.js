@@ -767,6 +767,13 @@
 
       if (!dataUrl) throw new Error('Could not extract graphic source');
 
+      // Enhance resolution: upscale smaller thumbnails to crisp 2K HD with high quality interpolation
+      if (type !== 'svg' && dataUrl && dataUrl.startsWith('data:image/')) {
+        try {
+          dataUrl = await upscaleImageIfNeeded(dataUrl);
+        } catch (e) {}
+      }
+
       const item = {
         id: 'ceg_' + Date.now() + '_' + Math.random().toString(36).substr(2, 4),
         dataUrl: dataUrl,
@@ -913,6 +920,43 @@
       };
       img.onerror = () => resolve(null);
       img.src = svgUrl;
+    });
+  }
+
+  function upscaleImageIfNeeded(dataUrl) {
+    return new Promise((resolve) => {
+      if (!dataUrl || typeof dataUrl !== 'string' || !dataUrl.startsWith('data:image/')) {
+        return resolve(dataUrl);
+      }
+      const img = new Image();
+      img.onload = () => {
+        try {
+          if (img.naturalWidth >= 1400 || img.naturalHeight >= 1400) {
+            return resolve(dataUrl);
+          }
+
+          const maxDim = Math.max(img.naturalWidth, img.naturalHeight);
+          const targetDim = Math.min(2400, Math.max(1600, Math.round(maxDim * 2.5)));
+          const scale = targetDim / maxDim;
+
+          const w = Math.round(img.naturalWidth * scale);
+          const h = Math.round(img.naturalHeight * scale);
+
+          const canvas = document.createElement('canvas');
+          canvas.width = w;
+          canvas.height = h;
+          const ctx = canvas.getContext('2d');
+          ctx.imageSmoothingEnabled = true;
+          ctx.imageSmoothingQuality = 'high';
+          ctx.drawImage(img, 0, 0, w, h);
+
+          resolve(canvas.toDataURL('image/png'));
+        } catch (e) {
+          resolve(dataUrl);
+        }
+      };
+      img.onerror = () => resolve(dataUrl);
+      img.src = dataUrl;
     });
   }
 
