@@ -5,12 +5,12 @@
 (function () {
   // Prevent duplicate injection
   if (window.__CANVA_ELEMENT_GRABBER_INITIALIZED__) {
-    console.log('Canva Element Grabber already running.');
+    console.log('[CanvaGrabber] Already running.');
     return;
   }
   window.__CANVA_ELEMENT_GRABBER_INITIALIZED__ = true;
 
-  console.log('Canva Element Grabber initialized on page.');
+  console.log('[CanvaGrabber] Initialized on Canva page.');
 
   // Safe Chrome API helpers to avoid "Extension context invalidated"
   function isExtensionAlive() {
@@ -22,7 +22,7 @@
       try {
         chrome.storage.local.get(keys, cb);
       } catch (e) {
-        console.warn('Storage get error:', e);
+        console.warn('[CanvaGrabber] Storage get error:', e);
       }
     }
   }
@@ -35,7 +35,7 @@
           if (cb) cb();
         });
       } catch (e) {
-        console.warn('Storage set error:', e);
+        console.warn('[CanvaGrabber] Storage set error:', e);
       }
     }
   }
@@ -44,11 +44,11 @@
     if (isExtensionAlive()) {
       try {
         chrome.runtime.sendMessage(msg, (res) => {
-          if (chrome.runtime.lastError) {}
-          if (cb) cb(res);
+          const err = chrome.runtime.lastError;
+          if (cb) cb(res, err);
         });
       } catch (e) {
-        console.warn('Send message error:', e);
+        console.warn('[CanvaGrabber] Send message error:', e);
       }
     }
   }
@@ -322,7 +322,6 @@
       return;
     }
 
-    // Find candidate graphic target
     const target = findGraphicTarget(e.target);
     if (!target) {
       overlayEl.style.display = 'none';
@@ -331,7 +330,6 @@
 
     hoveredElement = target;
 
-    // Position overlay exactly over candidate
     const rect = target.getBoundingClientRect();
     overlayEl.style.display = 'block';
     overlayEl.style.top = `${rect.top + window.scrollY}px`;
@@ -339,10 +337,9 @@
     overlayEl.style.width = `${rect.width}px`;
     overlayEl.style.height = `${rect.height}px`;
 
-    // Tooltip info
     const tag = target.tagName.toLowerCase();
     let typeName = 'Graphic';
-    if (tag === 'svg' || target.querySelector?.('svg')) typeName = 'Vector SVG / Shape';
+    if (tag === 'svg' || target.querySelector?.('svg')) typeName = 'Vector / Shape';
     else if (tag === 'img' || target.querySelector?.('img')) typeName = 'Image (PNG/JPG)';
     tooltipEl.innerText = `🎯 Click to Grab ${typeName} (${Math.round(rect.width)}×${Math.round(rect.height)})`;
   }
@@ -353,7 +350,6 @@
   async function handleClick(e) {
     if (!isInspectorActive) return;
 
-    // Ignore clicks on our UI
     if (e.target.closest && (e.target.closest('.ceg-floating-bar') || e.target.closest('.ceg-drawer') || e.target.closest('.ceg-highlight-overlay') || e.target.closest('.ceg-top-banner'))) {
       return;
     }
@@ -364,25 +360,22 @@
 
     const target = hoveredElement || findGraphicTarget(e.target);
     if (!target) {
-      showToast('❌ No graphic detected here. Try hovering over an image, shape or icon.', 'error');
+      showToast('❌ No element detected here. Hover over an image or graphic.', 'error');
       return;
     }
 
-    // Exit inspect mode immediately after click for smooth UX
     setInspectorActive(false);
-
-    showToast('⏳ Extracting high-res graphic...');
+    showToast('⏳ Extracting element...');
     await processAndGrabElement(target);
   }
 
   /**
    * Universal Graphic Target Finder:
-   * Selects ANY element clicked in Canva (photos, illustrations, shapes, svgs, stickers)
+   * Selects ANY element clicked in Canva (photos, illustrations, shapes, svgs, stickers, canvases)
    */
   function findGraphicTarget(el) {
     if (!el || el === document.body || el === document.documentElement) return null;
 
-    // Ignore extension UI
     if (el.closest && el.closest('.ceg-floating-bar, .ceg-drawer, .ceg-highlight-overlay, .ceg-top-banner, .ceg-toast')) {
       return null;
     }
@@ -392,7 +385,7 @@
       return el;
     }
 
-    // 2. Element inside an SVG (like path, polygon, g, circle, rect) -> return parent SVG
+    // 2. Element inside an SVG (like path, polygon, g, circle, rect)
     const parentSvg = el.closest ? el.closest('svg') : null;
     if (parentSvg) {
       return parentSvg;
@@ -401,11 +394,9 @@
     // 3. Container button/card in sidebar
     const container = el.closest ? el.closest('button, [role="button"], [data-testid*="element" i], [draggable="true"], [tabindex]') : null;
     if (container) {
-      // Look for IMG first
       const img = container.querySelector('img');
       if (img) return img;
 
-      // Look for SVGs inside (pick the largest one, so crown/3-dot icons don't override the main graphic)
       const svgs = Array.from(container.querySelectorAll('svg'));
       if (svgs.length > 0) {
         svgs.sort((a, b) => {
@@ -418,7 +409,7 @@
     }
 
     // 4. Direct child image/svg
-    const child = el.querySelector ? el.querySelector('img, svg') : null;
+    const child = el.querySelector ? el.querySelector('img, svg, canvas') : null;
     if (child) {
       return child;
     }
@@ -429,7 +420,7 @@
       return el;
     }
 
-    // 6. Any element with dimensions > 10px
+    // 6. Fallback: Any element with dimensions > 10px
     const rect = el.getBoundingClientRect();
     if (rect.width > 10 && rect.height > 10) {
       return el;
@@ -501,6 +492,26 @@
   }
 
   /**
+   * Helper: Convert CSS styled box/circle into clean vector SVG data URL
+   */
+  function elementToSvgDataUrl(el) {
+    try {
+      const rect = el.getBoundingClientRect();
+      const w = Math.max(Math.round(rect.width), 40);
+      const h = Math.max(Math.round(rect.height), 40);
+      const comp = window.getComputedStyle(el);
+      const bg = comp.backgroundColor;
+      const br = parseFloat(comp.borderRadius) || 0;
+      const fill = (bg && bg !== 'transparent' && bg !== 'rgba(0, 0, 0, 0)') ? bg : '#000000';
+
+      const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="${w}" height="${h}" viewBox="0 0 ${w} ${h}"><rect width="${w}" height="${h}" rx="${br}" ry="${br}" fill="${fill}"/></svg>`;
+      return 'data:image/svg+xml;charset=utf-8,' + encodeURIComponent(svg);
+    } catch (e) {
+      return null;
+    }
+  }
+
+  /**
    * Helper: Convert Blob to Data URL
    */
   function blobToDataUrl(blob) {
@@ -519,10 +530,28 @@
   }
 
   /**
+   * Background fetch helper via extension service worker
+   */
+  function fetchViaBackground(url) {
+    return new Promise((resolve, reject) => {
+      safeSendMessage({ action: 'FETCH_ASSET', url }, (response, err) => {
+        if (err) {
+          reject(new Error(err.message));
+        } else if (response && response.success) {
+          resolve(response);
+        } else {
+          reject(new Error(response?.error || 'Failed to fetch asset'));
+        }
+      });
+    });
+  }
+
+  /**
    * Universal Asset Fetcher:
-   * 1. Direct fetch in page with session cookies
-   * 2. Background service worker fetch with host permissions
-   * 3. Automatic fallback to original raw URL
+   * 1. Data URLs & Blob URLs handled instantly
+   * 2. Background service worker fetch with extension privileges
+   * 3. In-page direct fetch fallback
+   * 4. Automatic retry with raw fallback URL
    */
   async function fetchAssetDataUrl(url, fallbackUrl = null) {
     if (!url) return null;
@@ -534,23 +563,36 @@
       };
     }
 
-    // Direct in-page fetch with user's Canva session cookies
+    if (url.startsWith('blob:')) {
+      try {
+        const res = await fetch(url);
+        if (res.ok) {
+          const blob = await res.blob();
+          return await blobToDataUrl(blob);
+        }
+      } catch (e) {}
+    }
+
+    // 1. Try background service worker (runs with host_permissions)
     try {
-      const res = await fetch(url, { credentials: 'include' });
+      const bgRes = await fetchViaBackground(url);
+      if (bgRes && bgRes.dataUrl) return bgRes;
+    } catch (e) {
+      console.warn('[CanvaGrabber] Background fetch failed for', url, e.message);
+    }
+
+    // 2. Try in-page fetch
+    try {
+      const res = await fetch(url, { cache: 'force-cache' });
       if (res.ok) {
         const blob = await res.blob();
         return await blobToDataUrl(blob);
       }
     } catch (e) {}
 
-    // Background service worker fetch with extension privileges
-    try {
-      const bgRes = await fetchViaBackground(url);
-      if (bgRes && bgRes.dataUrl) return bgRes;
-    } catch (e) {}
-
-    // Try fallback original URL if clean URL failed
+    // 3. Fallback to raw uncleaned URL if cleanUrl failed
     if (fallbackUrl && fallbackUrl !== url) {
+      console.log('[CanvaGrabber] Trying fallback raw URL:', fallbackUrl);
       return await fetchAssetDataUrl(fallbackUrl, null);
     }
 
@@ -562,7 +604,9 @@
    */
   async function processAndGrabElement(target) {
     try {
-      // 1. If target is a container (div, button, span, etc.), resolve to child image/svg/canvas first
+      console.log('[CanvaGrabber] Processing target:', target.tagName, target);
+
+      // 1. If target is a container (div, button, span, etc.), unwrap to inner image/svg/canvas
       if (target.tagName !== 'IMG' && target.tagName !== 'SVG' && target.tagName !== 'svg' && target.tagName !== 'CANVAS') {
         const childImg = target.querySelector ? target.querySelector('img') : null;
         const childSvg = target.querySelector ? target.querySelector('svg') : null;
@@ -582,7 +626,7 @@
         assetData = {
           dataUrl: encoded,
           mimeType: 'image/svg+xml',
-          title: target.getAttribute('aria-label') || 'Canva Vector Shape',
+          title: target.getAttribute('aria-label') || 'Canva Vector Graphic',
           type: 'svg',
           rawSvg: svgString
         };
@@ -594,7 +638,7 @@
           assetData = {
             dataUrl: dataUrl,
             mimeType: 'image/png',
-            title: 'Canva Graphic',
+            title: 'Canva Canvas Graphic',
             type: 'image'
           };
         } catch (e) {}
@@ -602,13 +646,14 @@
       // CASE C: IMG element
       else if (tag === 'img') {
         let src = target.currentSrc || target.src || target.getAttribute('src') || target.getAttribute('srcset') || target.getAttribute('data-src');
-        if (target.srcset) {
+        if (target.srcset && (!src || src.startsWith('data:image/gif'))) {
           src = pickHighestResSrcset(target.srcset) || src;
         }
 
+        console.log('[CanvaGrabber] Image src found:', src);
+
         if (src) {
           const cleanUrl = cleanCanvaImageUrl(src);
-          // Try cleanUrl first, and automatically fallback to raw src if cleanUrl fails
           const fetched = await fetchAssetDataUrl(cleanUrl, src);
 
           if (fetched && fetched.dataUrl) {
@@ -652,7 +697,21 @@
         }
       }
 
+      // CASE F: Fallback for pure CSS colored shapes (div with background-color or radius)
+      if (!assetData) {
+        const svgShape = elementToSvgDataUrl(target);
+        if (svgShape) {
+          assetData = {
+            dataUrl: svgShape,
+            mimeType: 'image/svg+xml',
+            title: 'Canva Shape',
+            type: 'svg'
+          };
+        }
+      }
+
       if (!assetData || !assetData.dataUrl) {
+        console.error('[CanvaGrabber] Extraction failed for target:', target);
         throw new Error('Unable to extract image source');
       }
 
@@ -665,23 +724,19 @@
         timestamp: Date.now()
       };
 
-      // Add to beginning of grabbed list
       grabbedElements.unshift(item);
       if (grabbedElements.length > 50) grabbedElements.pop();
 
-      // Store locally
       safeStorageSet({
         grabbedElements,
         latestGrabbed: item
       });
 
-      // Broadcast to popup if open
       safeSendMessage({ action: 'ITEM_GRABBED', item });
 
       renderDrawerItems();
       showToast(`✨ Successfully grabbed "${item.title}"!`);
 
-      // If auto-insert is enabled, insert directly onto Canva's page!
       if (autoInsert) {
         await insertAssetToCanvas(item);
       } else {
@@ -689,7 +744,7 @@
       }
 
     } catch (err) {
-      console.error('Error grabbing element:', err);
+      console.error('[CanvaGrabber] Error grabbing element:', err);
       showToast('❌ Failed to grab element: ' + err.message, 'error');
     }
   }
@@ -699,7 +754,7 @@
     try {
       const parsed = new URL(url, window.location.href);
 
-      // If it's a signed URL (AWS / Canva security token or signature), keep query params intact!
+      // Keep signed URLs pristine (signature token breaks if query params change)
       const isSigned = parsed.searchParams.has('X-Amz-Signature') ||
                        parsed.searchParams.has('signature') ||
                        parsed.searchParams.has('Signature') ||
@@ -710,7 +765,7 @@
         return url;
       }
 
-      // FOR SVGs: DO NOT add raster resize query parameters!
+      // FOR SVGs: DO NOT add raster resize query parameters
       if (parsed.pathname.endsWith('.svg') || url.includes('.svg?')) {
         parsed.searchParams.delete('w');
         parsed.searchParams.delete('h');
@@ -781,20 +836,6 @@
     }
   }
 
-  function fetchViaBackground(url) {
-    return new Promise((resolve, reject) => {
-      safeSendMessage({ action: 'FETCH_ASSET', url }, (response) => {
-        if (chrome.runtime.lastError) {
-          reject(new Error(chrome.runtime.lastError.message));
-        } else if (response && response.success) {
-          resolve(response);
-        } else {
-          reject(new Error(response?.error || 'Failed to fetch asset'));
-        }
-      });
-    });
-  }
-
   /**
    * Insert Asset directly into Canva Canvas
    * Dispatches exactly one paste event onto Canva's editor
@@ -824,7 +865,7 @@
             ext = 'png';
           }
         } catch (convErr) {
-          console.warn('SVG-to-PNG fallback skipped:', convErr);
+          console.warn('[CanvaGrabber] SVG-to-PNG fallback skipped:', convErr);
         }
       }
 
@@ -871,7 +912,7 @@
 
       showToast('🎉 Element placed onto canvas!');
     } catch (err) {
-      console.error('Failed to insert into canvas:', err);
+      console.error('[CanvaGrabber] Failed to insert into canvas:', err);
       showToast('⚠️ Placed in Tray. Drag it directly onto canvas or press Ctrl+V!', 'info');
     }
   }
@@ -937,7 +978,7 @@
           e.dataTransfer.items.add(file);
           e.dataTransfer.effectAllowed = 'copyMove';
         } catch (err) {
-          console.error('Dragstart setup error:', err);
+          console.error('[CanvaGrabber] Dragstart setup error:', err);
         }
       });
 

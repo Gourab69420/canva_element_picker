@@ -38,10 +38,10 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
     handleFetchAsset(request.url)
       .then(result => sendResponse({ success: true, ...result }))
       .catch(error => {
-        console.warn('Background fetch error:', error.message);
+        console.warn('Background fetch error for', request.url, error.message);
         sendResponse({ success: false, error: error.message });
       });
-    return true; // Keep channel open for async fetch
+    return true; // Keep channel open for async response
   }
 
   if (request.action === 'UPDATE_BADGE') {
@@ -63,17 +63,29 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
 });
 
 /**
- * Fetch asset with extension privileges and session credentials
+ * Fetch asset with extension host permissions
+ * Uses standard CORS fetch so CDNs with Access-Control-Allow-Origin: * succeed immediately
  */
 async function handleFetchAsset(url) {
   try {
-    const response = await fetch(url, {
-      credentials: 'include',
-      cache: 'force-cache'
-    });
+    let response;
+
+    // Strategy 1: Standard fetch (compatible with wildcard CDNs)
+    try {
+      response = await fetch(url, { cache: 'force-cache' });
+    } catch (err) {
+      // Strategy 2: If standard fails, try with credentials
+      response = await fetch(url, { credentials: 'include', cache: 'force-cache' });
+    }
 
     if (!response.ok) {
-      throw new Error(`HTTP error! status: ${response.status}`);
+      // If 401/403, retry with credentials
+      if (response.status === 401 || response.status === 403) {
+        response = await fetch(url, { credentials: 'include', cache: 'force-cache' });
+      }
+      if (!response.ok) {
+        throw new Error(`HTTP error! status: ${response.status}`);
+      }
     }
 
     const contentType = response.headers.get('content-type') || 'image/png';
