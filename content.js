@@ -15,7 +15,7 @@
     try { window.__CANVA_GRABBER_CLEANUP__(); } catch (e) {}
   }
 
-  console.log('Canva Element Grabber v2.5 loaded');
+  console.log('Artwork Inserter v2.0 loaded');
 
   // State
   const MAX_TRAY_CAPACITY = 10;

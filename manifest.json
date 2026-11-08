@@ -1,8 +1,8 @@
 {
   "manifest_version": 3,
-  "name": "Canva Element Grabber & Inserter",
+  "name": "Artwork Inserter - Canvas Element Drop",
   "version": "2.0.0",
-  "description": "Click any graphic or shape in Canva to grab and drop it directly onto your canvas page.",
+  "description": "Inspect and drop any graphic, photo, or vector directly onto your active design artboard in 1 click.",
   "permissions": [
     "activeTab",
     "storage",
@@ -13,8 +13,7 @@
   "host_permissions": [
     "https://*.canva.com/*",
     "https://*.canva-static.com/*",
-    "https://*.canvamedia.com/*",
-    "https://*/*"
+    "https://*.canvamedia.com/*"
   ],
   "background": {
     "service_worker": "background.js"

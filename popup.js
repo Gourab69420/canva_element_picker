@@ -34,7 +34,7 @@ document.addEventListener('DOMContentLoaded', async () => {
 
   if (activeTab?.url && activeTab.url.includes('canva.com')) {
     isCanva = true;
-    statusBadge.textContent = 'Canva Connected';
+    statusBadge.textContent = 'Artboard Connected';
     statusBadge.classList.add('connected');
 
     await ensureInjected(activeTab.id);
