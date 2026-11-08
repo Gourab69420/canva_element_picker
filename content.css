@@ -1,4 +1,4 @@
-/* Canva Element Grabber - Native Built-in Design System (v2.3) */
+/* Canva Element Grabber - Native Built-in Design System (v2.4) */
 
 /* 1. Purple Precision Reticle Cursor (#5E50E2) when Grab Mode is active */
 html.ceg-active,
@@ -53,103 +53,143 @@ body.ceg-active * {
   transition: all 0.2s ease !important;
 }
 
-/* 3. Top Navigation Bar Toggle (Directly After Backup Cloud Icon) */
+/* 3. Top Navigation Bar Toggle (Perfect Vertical Centering) */
 .ceg-top-group {
-  display: inline-flex;
-  align-items: center;
-  height: 32px;
-  flex-shrink: 0;
-  white-space: nowrap;
-  margin: 0 4px;
+  display: inline-flex !important;
+  align-items: center !important;
+  justify-content: center !important;
+  align-self: center !important;
+  height: 36px !important;
+  flex-shrink: 0 !important;
+  white-space: nowrap !important;
+  margin: 0 4px !important;
+  vertical-align: middle !important;
+  box-sizing: border-box !important;
+  line-height: normal !important;
 }
 
 .ceg-top-divider {
   width: 1px;
-  height: 16px;
-  background: rgba(255, 255, 255, 0.16);
-  margin: 0 6px;
+  height: 18px;
+  background: rgba(255, 255, 255, 0.22);
+  margin: 0 8px 0 2px;
+  align-self: center;
 }
 
 .ceg-nav-segmented {
-  display: inline-flex;
-  align-items: center;
-  background: rgba(255, 255, 255, 0.06);
-  border: 1px solid rgba(255, 255, 255, 0.1);
-  border-radius: 6px;
+  display: inline-flex !important;
+  align-items: center !important;
+  justify-content: center !important;
+  background: rgba(255, 255, 255, 0.10);
+  border: 1px solid rgba(255, 255, 255, 0.16);
+  border-radius: 7px;
   padding: 2px;
   gap: 2px;
+  height: 32px;
+  box-sizing: border-box !important;
 }
 
 .ceg-nav-btn {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  width: 28px;
-  height: 26px;
-  border-radius: 4px;
-  border: none;
-  background: transparent;
-  color: rgba(255, 255, 255, 0.75);
-  transition: all 0.18s cubic-bezier(0.4, 0, 0.2, 1);
-  padding: 0;
+  display: inline-flex !important;
+  align-items: center !important;
+  justify-content: center !important;
+  width: 28px !important;
+  height: 26px !important;
+  border-radius: 5px !important;
+  border: none !important;
+  background: transparent !important;
+  color: rgba(255, 255, 255, 0.82) !important;
+  transition: all 0.18s cubic-bezier(0.4, 0, 0.2, 1) !important;
+  padding: 0 !important;
+  cursor: pointer !important;
 }
 
 .ceg-nav-btn:hover {
-  background: rgba(255, 255, 255, 0.1);
-  color: #ffffff;
+  background: rgba(255, 255, 255, 0.14) !important;
+  color: #ffffff !important;
 }
 
 .ceg-nav-btn.active {
   background: #5E50E2 !important;
   color: #ffffff !important;
-  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.25);
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.25) !important;
 }
 
-/* 4. Native Footer Tray Button (Between Expandable Sign & Help ?) */
+/* 4. Native Footer Tray Button (Black & Thick, Matching Other Canva Footer Buttons) */
 .ceg-footer-tray-btn {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  position: relative;
-  width: 32px;
-  height: 32px;
-  border-radius: 6px;
-  border: none;
-  background: transparent;
-  color: rgba(255, 255, 255, 0.75);
-  transition: all 0.15s ease;
-  margin: 0 2px;
-  flex-shrink: 0;
+  display: inline-flex !important;
+  align-items: center !important;
+  justify-content: center !important;
+  position: relative !important;
+  height: 32px !important;
+  padding: 0 8px !important;
+  margin: 0 2px !important;
+  gap: 5px !important;
+  border-radius: 6px !important;
+  border: none !important;
+  background: transparent !important;
+  color: #0e0f14 !important;
+  font-family: "Canva Sans", -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif !important;
+  font-size: 12px !important;
+  font-weight: 600 !important;
+  line-height: 1 !important;
+  cursor: pointer !important;
+  flex-shrink: 0 !important;
+  white-space: nowrap !important;
+  transition: background 0.15s ease !important;
+  box-sizing: border-box !important;
 }
 
 .ceg-footer-tray-btn:hover {
-  background: rgba(255, 255, 255, 0.08);
-  color: #ffffff;
+  background: rgba(14, 15, 20, 0.08) !important;
+}
+
+.ceg-footer-tray-btn svg {
+  stroke: #0e0f14 !important;
+  stroke-width: 2.2px !important;
+  flex-shrink: 0 !important;
+}
+
+.ceg-footer-tray-text {
+  color: #0e0f14 !important;
+  font-family: inherit !important;
+  font-size: 12px !important;
+  font-weight: 600 !important;
+  line-height: 1 !important;
+}
+
+.ceg-footer-tray-count {
+  color: #0e0f14 !important;
+  font-family: inherit !important;
+  font-size: 12px !important;
+  font-weight: 600 !important;
+  line-height: 1 !important;
 }
 
 .ceg-tray-badge {
   position: absolute;
-  top: 2px;
-  right: 2px;
+  top: 1px;
+  right: 1px;
   background: #5E50E2;
   color: #ffffff;
+  font-family: "Canva Sans", -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
   font-size: 9px;
   font-weight: 700;
-  min-width: 15px;
-  height: 15px;
+  min-width: 14px;
+  height: 14px;
   padding: 0 3px;
-  border-radius: 8px;
+  border-radius: 7px;
   display: flex;
   align-items: center;
   justify-content: center;
-  border: 1.5px solid #18191f;
+  border: 1.5px solid #ffffff;
 }
 
 /* 5. Tray Drawer (Opens upward in bottom-right) */
 .ceg-tray-drawer {
   position: fixed;
   bottom: 48px;
-  right: 50px;
+  right: 48px;
   width: 330px;
   max-height: 460px;
   background: #18191f;
@@ -192,7 +232,7 @@ body.ceg-active * {
   color: #ffffff;
 }
 
-/* Settings Box inside Tray */
+/* Settings inside Tray Drawer */
 .ceg-tray-settings {
   padding: 8px 12px;
   background: #22232a;
