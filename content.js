@@ -175,6 +175,32 @@
     }
   }
 
+  // Top Nav Bar Mouse/Grab Toggle handlers (Capturing mode guarantees instant 1st-click toggle)
+  function onTopToggleClick(e) {
+    const grabBtn = e.target.closest('#ceg-nav-grab');
+    const mouseBtn = e.target.closest('#ceg-nav-mouse');
+    const segContainer = e.target.closest('.ceg-nav-segmented');
+    if (!grabBtn && !mouseBtn && !segContainer) return;
+
+    e.preventDefault();
+    e.stopPropagation();
+    e.stopImmediatePropagation();
+
+    if (grabBtn) {
+      setInspector(true);
+    } else if (mouseBtn) {
+      setInspector(false);
+    } else if (segContainer) {
+      setInspector(!isInspectorActive);
+    }
+  }
+
+  function onTopPointerDown(e) {
+    if (e.target.closest('#ceg-top-controls')) {
+      e.stopPropagation();
+    }
+  }
+
   function injectTopBarControls(header) {
     let topGroup = document.getElementById('ceg-top-controls');
 
@@ -417,31 +443,7 @@
   };
   window.addEventListener('keydown', onKeyDown);
 
-  // Top Nav Bar Mouse/Grab Toggle handlers (Capturing mode guarantees instant 1st-click toggle)
-  const onTopToggleClick = (e) => {
-    const grabBtn = e.target.closest('#ceg-nav-grab');
-    const mouseBtn = e.target.closest('#ceg-nav-mouse');
-    const segContainer = e.target.closest('.ceg-nav-segmented');
-    if (!grabBtn && !mouseBtn && !segContainer) return;
 
-    e.preventDefault();
-    e.stopPropagation();
-    e.stopImmediatePropagation();
-
-    if (grabBtn) {
-      setInspector(true);
-    } else if (mouseBtn) {
-      setInspector(false);
-    } else if (segContainer) {
-      setInspector(!isInspectorActive);
-    }
-  };
-
-  const onTopPointerDown = (e) => {
-    if (e.target.closest('#ceg-top-controls')) {
-      e.stopPropagation();
-    }
-  };
 
   document.addEventListener('click', onTopToggleClick, true);
   document.addEventListener('pointerdown', onTopPointerDown, true);
