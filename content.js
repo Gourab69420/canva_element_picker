@@ -501,21 +501,60 @@
   }
 
   /**
-   * Helper: extract image dataUrl directly from rendered IMG element on page
+   * Helper: Convert Blob to Data URL
    */
-  function getLoadedImageDataUrl(imgEl) {
-    try {
-      const canvas = document.createElement('canvas');
-      const w = imgEl.naturalWidth || imgEl.width || 300;
-      const h = imgEl.naturalHeight || imgEl.height || 300;
-      canvas.width = Math.max(w, 50);
-      canvas.height = Math.max(h, 50);
-      const ctx = canvas.getContext('2d');
-      ctx.drawImage(imgEl, 0, 0, canvas.width, canvas.height);
-      return canvas.toDataURL('image/png');
-    } catch (e) {
-      return null;
+  function blobToDataUrl(blob) {
+    return new Promise((resolve, reject) => {
+      const reader = new FileReader();
+      reader.onloadend = () => {
+        resolve({
+          dataUrl: reader.result,
+          mimeType: blob.type || 'image/png',
+          size: blob.size
+        });
+      };
+      reader.onerror = reject;
+      reader.readAsDataURL(blob);
+    });
+  }
+
+  /**
+   * Universal Asset Fetcher:
+   * 1. Direct fetch in page with session cookies
+   * 2. Background service worker fetch with host permissions
+   * 3. Automatic fallback to original raw URL
+   */
+  async function fetchAssetDataUrl(url, fallbackUrl = null) {
+    if (!url) return null;
+
+    if (url.startsWith('data:')) {
+      return {
+        dataUrl: url,
+        mimeType: url.includes('image/svg') ? 'image/svg+xml' : 'image/png'
+      };
     }
+
+    // Direct in-page fetch with user's Canva session cookies
+    try {
+      const res = await fetch(url, { credentials: 'include' });
+      if (res.ok) {
+        const blob = await res.blob();
+        return await blobToDataUrl(blob);
+      }
+    } catch (e) {}
+
+    // Background service worker fetch with extension privileges
+    try {
+      const bgRes = await fetchViaBackground(url);
+      if (bgRes && bgRes.dataUrl) return bgRes;
+    } catch (e) {}
+
+    // Try fallback original URL if clean URL failed
+    if (fallbackUrl && fallbackUrl !== url) {
+      return await fetchAssetDataUrl(fallbackUrl, null);
+    }
+
+    return null;
   }
 
   /**
@@ -562,43 +601,15 @@
       }
       // CASE C: IMG element
       else if (tag === 'img') {
-        let src = target.currentSrc || target.src || target.getAttribute('srcset') || target.getAttribute('data-src');
+        let src = target.currentSrc || target.src || target.getAttribute('src') || target.getAttribute('srcset') || target.getAttribute('data-src');
         if (target.srcset) {
           src = pickHighestResSrcset(target.srcset) || src;
         }
 
-        // If it's already a Data URL, use directly!
-        if (src && src.startsWith('data:')) {
-          assetData = {
-            dataUrl: src,
-            mimeType: src.includes('image/svg') ? 'image/svg+xml' : 'image/png',
-            title: target.alt || 'Canva Graphic',
-            type: src.includes('image/svg') ? 'svg' : 'image'
-          };
-        } else if (src) {
+        if (src) {
           const cleanUrl = cleanCanvaImageUrl(src);
-          let fetched = null;
-          try {
-            fetched = await fetchViaBackground(cleanUrl);
-          } catch (fetchErr) {
-            console.warn('Clean URL fetch failed, falling back to original src:', fetchErr);
-            try {
-              fetched = await fetchViaBackground(src);
-            } catch (err2) {
-              console.warn('Direct fetch failed, falling back to canvas DOM extraction');
-            }
-          }
-
-          // Fallback: draw directly from rendered DOM image if network fetch failed
-          if (!fetched || !fetched.dataUrl) {
-            const directDataUrl = getLoadedImageDataUrl(target);
-            if (directDataUrl) {
-              fetched = {
-                dataUrl: directDataUrl,
-                mimeType: 'image/png'
-              };
-            }
-          }
+          // Try cleanUrl first, and automatically fallback to raw src if cleanUrl fails
+          const fetched = await fetchAssetDataUrl(cleanUrl, src);
 
           if (fetched && fetched.dataUrl) {
             assetData = {
@@ -617,31 +628,15 @@
         const match = bg.match(/url\(["']?([^"']+)["']?\)/);
         if (match && match[1]) {
           const bgUrl = match[1];
-          if (bgUrl.startsWith('data:')) {
+          const cleanUrl = cleanCanvaImageUrl(bgUrl);
+          const fetched = await fetchAssetDataUrl(cleanUrl, bgUrl);
+          if (fetched && fetched.dataUrl) {
             assetData = {
-              dataUrl: bgUrl,
-              mimeType: 'image/png',
+              ...fetched,
+              url: cleanUrl,
               title: 'Canva Background Graphic',
               type: 'image'
             };
-          } else {
-            const cleanUrl = cleanCanvaImageUrl(bgUrl);
-            let fetched = null;
-            try {
-              fetched = await fetchViaBackground(cleanUrl);
-            } catch (e) {
-              try {
-                fetched = await fetchViaBackground(bgUrl);
-              } catch (e2) {}
-            }
-            if (fetched && fetched.dataUrl) {
-              assetData = {
-                ...fetched,
-                url: cleanUrl,
-                title: 'Canva Background Graphic',
-                type: 'image'
-              };
-            }
           }
         }
       }

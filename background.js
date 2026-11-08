@@ -1,6 +1,5 @@
 // Background service worker for Canva Element Grabber & Inserter
 
-// Auto-inject content scripts into open Canva tabs on install or reload
 chrome.runtime.onInstalled.addListener(async () => {
   console.log('Canva Element Grabber extension installed/reloaded.');
   chrome.storage.local.set({
@@ -12,7 +11,6 @@ chrome.runtime.onInstalled.addListener(async () => {
   injectIntoExistingTabs();
 });
 
-// Also inject when service worker starts up
 injectIntoExistingTabs();
 
 async function injectIntoExistingTabs() {
@@ -29,23 +27,20 @@ async function injectIntoExistingTabs() {
             target: { tabId: tab.id },
             files: ['content.js']
           });
-          console.log(`Injected into tab: ${tab.id}`);
-        } catch (e) {
-          // Tab might be restricted or loading
-        }
+        } catch (e) {}
       }
     }
-  } catch (err) {
-    console.warn('Tab query error during injection:', err);
-  }
+  } catch (err) {}
 }
 
-// Handle messages from content scripts and popup
 chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
   if (request.action === 'FETCH_ASSET') {
     handleFetchAsset(request.url)
       .then(result => sendResponse({ success: true, ...result }))
-      .catch(error => sendResponse({ success: false, error: error.message }));
+      .catch(error => {
+        console.warn('Background fetch error:', error.message);
+        sendResponse({ success: false, error: error.message });
+      });
     return true; // Keep channel open for async fetch
   }
 
@@ -68,12 +63,12 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
 });
 
 /**
- * Fetch asset with extension privileges to bypass CORS restrictions
+ * Fetch asset with extension privileges and session credentials
  */
 async function handleFetchAsset(url) {
   try {
     const response = await fetch(url, {
-      mode: 'cors',
+      credentials: 'include',
       cache: 'force-cache'
     });
 
@@ -97,7 +92,6 @@ async function handleFetchAsset(url) {
       reader.readAsDataURL(blob);
     });
   } catch (err) {
-    console.error('Failed to fetch asset in background:', err);
     throw err;
   }
 }
