@@ -41,15 +41,18 @@
   }
 
   function safeSendMessage(msg, cb) {
-    if (isExtensionAlive()) {
-      try {
-        chrome.runtime.sendMessage(msg, (res) => {
-          const err = chrome.runtime.lastError;
-          if (cb) cb(res, err);
-        });
-      } catch (e) {
-        console.warn('[CanvaGrabber] Send message error:', e);
-      }
+    if (!isExtensionAlive()) {
+      if (cb) cb(null, new Error('Extension context invalidated'));
+      return;
+    }
+    try {
+      chrome.runtime.sendMessage(msg, (res) => {
+        const err = chrome.runtime.lastError;
+        if (cb) cb(res, err);
+      });
+    } catch (e) {
+      console.warn('[CanvaGrabber] Send message error:', e);
+      if (cb) cb(null, e);
     }
   }
 
@@ -370,8 +373,30 @@
   }
 
   /**
+   * Helper: Detect if an SVG is merely a small UI control icon (3-dots menu, pro crown, close, info, chevron)
+   */
+  function isUiIconSvg(svg) {
+    if (!svg) return true;
+    const rect = svg.getBoundingClientRect();
+    if (rect.width > 0 && rect.height > 0 && rect.width < 32 && rect.height < 32) {
+      const btn = svg.closest('button, [role="button"]');
+      if (btn) {
+        const label = (btn.getAttribute('aria-label') || '').toLowerCase();
+        if (label.includes('option') || label.includes('more') || label.includes('pro') || label.includes('crown') || label.includes('close') || label.includes('menu')) {
+          return true;
+        }
+      }
+      const parentClass = (svg.parentElement?.className || '').toString().toLowerCase();
+      if (parentClass.includes('crown') || parentClass.includes('badge') || parentClass.includes('menu')) {
+        return true;
+      }
+    }
+    return false;
+  }
+
+  /**
    * Universal Graphic Target Finder:
-   * Selects ANY element clicked in Canva (photos, illustrations, shapes, svgs, stickers, canvases)
+   * Accurately finds the real IMG or SVG artwork element, ignoring UI badges/buttons
    */
   function findGraphicTarget(el) {
     if (!el || el === document.body || el === document.documentElement) return null;
@@ -380,24 +405,37 @@
       return null;
     }
 
-    // 1. Direct SVG, Image or Canvas
-    if (el.tagName === 'IMG' || el.tagName === 'SVG' || el.tagName === 'svg' || el.tagName === 'CANVAS') {
+    // 1. Direct Image or Canvas
+    if (el.tagName === 'IMG' || el.tagName === 'CANVAS') {
       return el;
     }
 
-    // 2. Element inside an SVG (like path, polygon, g, circle, rect)
+    // 2. Direct SVG (ensure it's not a tiny UI badge)
+    if (el.tagName.toLowerCase() === 'svg') {
+      if (!isUiIconSvg(el)) return el;
+    }
+
+    // 3. Element inside an SVG (like path, polygon, g, circle, rect)
     const parentSvg = el.closest ? el.closest('svg') : null;
-    if (parentSvg) {
+    if (parentSvg && !isUiIconSvg(parentSvg)) {
       return parentSvg;
     }
 
-    // 3. Container button/card in sidebar
-    const container = el.closest ? el.closest('button, [role="button"], [data-testid*="element" i], [draggable="true"], [tabindex]') : null;
-    if (container) {
-      const img = container.querySelector('img');
-      if (img) return img;
+    // 4. Container card/tile in sidebar or grid
+    const card = (el.closest ? el.closest('[draggable="true"], [role="gridcell"], [role="button"], button, [data-testid*="element" i], [data-testid*="grid-item" i], [data-testid*="card" i], [data-testid*="media" i], [tabindex], li') : null) || el;
 
-      const svgs = Array.from(container.querySelectorAll('svg'));
+    if (card) {
+      // 4a. Prioritize real IMG elements with source
+      const imgs = Array.from(card.querySelectorAll('img'));
+      for (const img of imgs) {
+        const r = img.getBoundingClientRect();
+        if ((r.width > 20 && r.height > 20) || img.src || img.srcset) {
+          return img;
+        }
+      }
+
+      // 4b. Find artwork SVGs (excluding 3-dots and crown icons)
+      const svgs = Array.from(card.querySelectorAll('svg')).filter(s => !isUiIconSvg(s));
       if (svgs.length > 0) {
         svgs.sort((a, b) => {
           const ra = a.getBoundingClientRect();
@@ -406,23 +444,21 @@
         });
         return svgs[0];
       }
+
+      // 4c. Canvas element
+      const canvas = card.querySelector('canvas');
+      if (canvas) return canvas;
+
+      // 4d. Background image
+      const bg = window.getComputedStyle(card).backgroundImage;
+      if (bg && bg !== 'none' && bg.startsWith('url(')) {
+        return card;
+      }
     }
 
-    // 4. Direct child image/svg
-    const child = el.querySelector ? el.querySelector('img, svg, canvas') : null;
-    if (child) {
-      return child;
-    }
-
-    // 5. Background image
-    const bg = window.getComputedStyle(el).backgroundImage;
-    if (bg && bg !== 'none' && bg.startsWith('url(')) {
-      return el;
-    }
-
-    // 6. Fallback: Any element with dimensions > 10px
-    const rect = el.getBoundingClientRect();
-    if (rect.width > 10 && rect.height > 10) {
+    // 5. Background image directly on el
+    const directBg = window.getComputedStyle(el).backgroundImage;
+    if (directBg && directBg !== 'none' && directBg.startsWith('url(')) {
       return el;
     }
 
@@ -430,7 +466,8 @@
   }
 
   /**
-   * Properly serialize SVG with namespaces, dimensions, and computed fill colors
+   * Properly serialize SVG with namespaces, dimensions, and computed fill/stroke colors
+   * Preserves full multi-color artwork without setting an overriding root fill
    */
   function serializeSvgProperly(svgEl) {
     const clone = svgEl.cloneNode(true);
@@ -454,21 +491,59 @@
       clone.setAttribute('height', `${h}`);
     }
 
-    // Resolve currentColor and CSS inherited fill colors
+    // Transfer computed styles from original live DOM nodes to clone nodes
+    // CRITICAL: We NEVER set fill on the root <svg> tag because that cascades down
+    // and turns multi-color artwork into solid black silhouettes!
     try {
-      const computedColor = window.getComputedStyle(svgEl).color || window.getComputedStyle(svgEl).fill || '#000000';
-      if (!clone.getAttribute('fill') || clone.getAttribute('fill') === 'currentColor') {
-        clone.setAttribute('fill', computedColor);
+      const origNodes = Array.from(svgEl.querySelectorAll('*'));
+      const cloneNodes = Array.from(clone.querySelectorAll('*'));
+
+      for (let i = 0; i < origNodes.length && i < cloneNodes.length; i++) {
+        const orig = origNodes[i];
+        const cln = cloneNodes[i];
+        const comp = window.getComputedStyle(orig);
+
+        // 1. Fill handling
+        const origFill = orig.getAttribute('fill');
+        if (origFill === 'currentColor') {
+          cln.setAttribute('fill', comp.color || '#000000');
+        } else if (!origFill) {
+          const compFill = comp.fill;
+          if (compFill && compFill !== 'none') {
+            cln.setAttribute('fill', compFill);
+          } else if (compFill === 'none') {
+            cln.setAttribute('fill', 'none');
+          }
+        }
+
+        // 2. Stroke handling
+        const origStroke = orig.getAttribute('stroke');
+        if (origStroke === 'currentColor') {
+          cln.setAttribute('stroke', comp.color || '#000000');
+        } else if (!origStroke) {
+          const compStroke = comp.stroke;
+          if (compStroke && compStroke !== 'none') {
+            cln.setAttribute('stroke', compStroke);
+          }
+        }
+
+        // 3. Stroke dimensions & styling
+        if (comp.strokeWidth && comp.strokeWidth !== '0px' && !cln.getAttribute('stroke-width')) {
+          cln.setAttribute('stroke-width', comp.strokeWidth);
+        }
+        if (comp.strokeLinecap && !cln.getAttribute('stroke-linecap')) {
+          cln.setAttribute('stroke-linecap', comp.strokeLinecap);
+        }
+        if (comp.strokeLinejoin && !cln.getAttribute('stroke-linejoin')) {
+          cln.setAttribute('stroke-linejoin', comp.strokeLinejoin);
+        }
+        if (comp.opacity && comp.opacity !== '1' && !cln.getAttribute('opacity')) {
+          cln.setAttribute('opacity', comp.opacity);
+        }
       }
-      clone.querySelectorAll('*').forEach(child => {
-        if (child.getAttribute('fill') === 'currentColor') {
-          child.setAttribute('fill', computedColor);
-        }
-        if (child.getAttribute('stroke') === 'currentColor') {
-          child.setAttribute('stroke', computedColor);
-        }
-      });
-    } catch (e) {}
+    } catch (e) {
+      console.warn('[CanvaGrabber] Error inlining SVG styles:', e);
+    }
 
     // Include referenced <defs> symbols if any
     const uses = clone.querySelectorAll('use');
@@ -489,26 +564,6 @@
     });
 
     return new XMLSerializer().serializeToString(clone);
-  }
-
-  /**
-   * Helper: Convert CSS styled box/circle into clean vector SVG data URL
-   */
-  function elementToSvgDataUrl(el) {
-    try {
-      const rect = el.getBoundingClientRect();
-      const w = Math.max(Math.round(rect.width), 40);
-      const h = Math.max(Math.round(rect.height), 40);
-      const comp = window.getComputedStyle(el);
-      const bg = comp.backgroundColor;
-      const br = parseFloat(comp.borderRadius) || 0;
-      const fill = (bg && bg !== 'transparent' && bg !== 'rgba(0, 0, 0, 0)') ? bg : '#000000';
-
-      const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="${w}" height="${h}" viewBox="0 0 ${w} ${h}"><rect width="${w}" height="${h}" rx="${br}" ry="${br}" fill="${fill}"/></svg>`;
-      return 'data:image/svg+xml;charset=utf-8,' + encodeURIComponent(svg);
-    } catch (e) {
-      return null;
-    }
   }
 
   /**
@@ -600,20 +655,34 @@
   }
 
   /**
+   * Helper: Try to extract data URL directly from rendered img if canvas is not tainted
+   */
+  function getLoadedImageDataUrl(imgEl) {
+    try {
+      const canvas = document.createElement('canvas');
+      canvas.width = imgEl.naturalWidth || imgEl.width || 300;
+      canvas.height = imgEl.naturalHeight || imgEl.height || 300;
+      const ctx = canvas.getContext('2d');
+      ctx.drawImage(imgEl, 0, 0);
+      return canvas.toDataURL('image/png');
+    } catch (e) {
+      return null;
+    }
+  }
+
+  /**
    * Extract image source and convert to usable data
    */
   async function processAndGrabElement(target) {
     try {
       console.log('[CanvaGrabber] Processing target:', target.tagName, target);
 
-      // 1. If target is a container (div, button, span, etc.), unwrap to inner image/svg/canvas
+      // 1. If target is a container, unwrap using findGraphicTarget
       if (target.tagName !== 'IMG' && target.tagName !== 'SVG' && target.tagName !== 'svg' && target.tagName !== 'CANVAS') {
-        const childImg = target.querySelector ? target.querySelector('img') : null;
-        const childSvg = target.querySelector ? target.querySelector('svg') : null;
-        const childCanvas = target.querySelector ? target.querySelector('canvas') : null;
-        if (childImg) target = childImg;
-        else if (childSvg) target = childSvg;
-        else if (childCanvas) target = childCanvas;
+        const unwrapped = findGraphicTarget(target);
+        if (unwrapped && unwrapped !== target) {
+          target = unwrapped;
+        }
       }
 
       let assetData = null;
@@ -623,10 +692,14 @@
       if (tag === 'svg') {
         const svgString = serializeSvgProperly(target);
         const encoded = 'data:image/svg+xml;charset=utf-8,' + encodeURIComponent(svgString);
+        const title = target.getAttribute('aria-label') ||
+                      target.closest('[aria-label]')?.getAttribute('aria-label') ||
+                      target.querySelector('title')?.textContent ||
+                      'Canva Vector Graphic';
         assetData = {
           dataUrl: encoded,
           mimeType: 'image/svg+xml',
-          title: target.getAttribute('aria-label') || 'Canva Vector Graphic',
+          title: title,
           type: 'svg',
           rawSvg: svgString
         };
@@ -654,13 +727,29 @@
 
         if (src) {
           const cleanUrl = cleanCanvaImageUrl(src);
-          const fetched = await fetchAssetDataUrl(cleanUrl, src);
+          // Try original src first for maximum reliability, then cleanUrl
+          let fetched = await fetchAssetDataUrl(src);
+          if (!fetched && cleanUrl && cleanUrl !== src) {
+            fetched = await fetchAssetDataUrl(cleanUrl);
+          }
+
+          // If network fetch was blocked, try direct canvas extract from already-loaded image
+          if ((!fetched || !fetched.dataUrl) && target.complete && target.naturalWidth > 0) {
+            const direct = getLoadedImageDataUrl(target);
+            if (direct) {
+              fetched = { dataUrl: direct, mimeType: 'image/png' };
+            }
+          }
 
           if (fetched && fetched.dataUrl) {
+            const title = target.alt ||
+                          target.getAttribute('aria-label') ||
+                          target.closest('[aria-label]')?.getAttribute('aria-label') ||
+                          'Canva Graphic';
             assetData = {
               ...fetched,
-              url: cleanUrl || src,
-              title: target.alt || 'Canva Graphic',
+              url: src,
+              title: title,
               type: fetched.mimeType.includes('svg') ? 'svg' : 'image'
             };
           }
@@ -673,12 +762,11 @@
         const match = bg.match(/url\(["']?([^"']+)["']?\)/);
         if (match && match[1]) {
           const bgUrl = match[1];
-          const cleanUrl = cleanCanvaImageUrl(bgUrl);
-          const fetched = await fetchAssetDataUrl(cleanUrl, bgUrl);
+          const fetched = await fetchAssetDataUrl(bgUrl);
           if (fetched && fetched.dataUrl) {
             assetData = {
               ...fetched,
-              url: cleanUrl,
+              url: bgUrl,
               title: 'Canva Background Graphic',
               type: 'image'
             };
@@ -688,25 +776,12 @@
 
       // CASE E: Search parent card for nested img or svg
       if (!assetData) {
-        const parentCard = target.closest ? target.closest('button, [role="button"], [data-testid*="element" i], [draggable="true"]') : null;
+        const parentCard = target.closest ? target.closest('button, [role="button"], [data-testid*="element" i], [draggable="true"], [role="gridcell"], li') : null;
         if (parentCard && parentCard !== target) {
-          const pImg = parentCard.querySelector('img');
-          const pSvg = parentCard.querySelector('svg');
-          if (pImg) return await processAndGrabElement(pImg);
-          if (pSvg) return await processAndGrabElement(pSvg);
-        }
-      }
-
-      // CASE F: Fallback for pure CSS colored shapes (div with background-color or radius)
-      if (!assetData) {
-        const svgShape = elementToSvgDataUrl(target);
-        if (svgShape) {
-          assetData = {
-            dataUrl: svgShape,
-            mimeType: 'image/svg+xml',
-            title: 'Canva Shape',
-            type: 'svg'
-          };
+          const candidate = findGraphicTarget(parentCard);
+          if (candidate && candidate !== target) {
+            return await processAndGrabElement(candidate);
+          }
         }
       }
 
@@ -759,13 +834,15 @@
                        parsed.searchParams.has('signature') ||
                        parsed.searchParams.has('Signature') ||
                        parsed.searchParams.has('token') ||
+                       parsed.searchParams.has('sig') ||
+                       parsed.searchParams.has('s') ||
                        parsed.searchParams.has('exp');
 
       if (isSigned) {
         return url;
       }
 
-      // FOR SVGs: DO NOT add raster resize query parameters
+      // FOR SVGs: strip raster query parameters to ensure pure vector
       if (parsed.pathname.endsWith('.svg') || url.includes('.svg?')) {
         parsed.searchParams.delete('w');
         parsed.searchParams.delete('h');
@@ -774,17 +851,7 @@
         return parsed.toString();
       }
 
-      // For PNG/JPG raster images: boost resolution
-      if (parsed.searchParams.has('w')) {
-        parsed.searchParams.set('w', '2400');
-      }
-      if (parsed.searchParams.has('h')) {
-        parsed.searchParams.set('h', '2400');
-      }
-      if (parsed.searchParams.has('quality')) {
-        parsed.searchParams.set('quality', '100');
-      }
-      return parsed.toString();
+      return url;
     } catch {
       return url;
     }

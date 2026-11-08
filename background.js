@@ -89,20 +89,21 @@ async function handleFetchAsset(url) {
     }
 
     const contentType = response.headers.get('content-type') || 'image/png';
-    const blob = await response.blob();
+    const arrayBuffer = await response.arrayBuffer();
+    const bytes = new Uint8Array(arrayBuffer);
+    let binary = '';
+    const len = bytes.byteLength;
+    for (let i = 0; i < len; i += 8192) {
+      binary += String.fromCharCode.apply(null, bytes.subarray(i, Math.min(i + 8192, len)));
+    }
+    const base64 = btoa(binary);
+    const dataUrl = `data:${contentType};base64,${base64}`;
 
-    return new Promise((resolve, reject) => {
-      const reader = new FileReader();
-      reader.onloadend = () => {
-        resolve({
-          dataUrl: reader.result,
-          mimeType: contentType,
-          size: blob.size
-        });
-      };
-      reader.onerror = reject;
-      reader.readAsDataURL(blob);
-    });
+    return {
+      dataUrl,
+      mimeType: contentType,
+      size: arrayBuffer.byteLength
+    };
   } catch (err) {
     throw err;
   }
