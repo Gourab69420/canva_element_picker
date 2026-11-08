@@ -49,21 +49,37 @@
     return window.location.pathname.startsWith('/design/') || window.location.pathname.includes('/design/');
   }
 
+  function ensureOverlay() {
+    overlay = document.getElementById('ceg-bounding-overlay');
+    if (!overlay || !document.body || !document.body.contains(overlay)) {
+      if (overlay) {
+        try { overlay.remove(); } catch (e) {}
+      }
+      overlay = document.createElement('div');
+      overlay.id = 'ceg-bounding-overlay';
+      overlay.className = 'ceg-ui-element ceg-bounding-overlay';
+      overlay.style.display = 'none';
+
+      tooltip = document.createElement('div');
+      tooltip.id = 'ceg-tooltip';
+      tooltip.className = 'ceg-tooltip';
+      overlay.appendChild(tooltip);
+
+      if (document.body) {
+        document.body.appendChild(overlay);
+      }
+    } else {
+      tooltip = overlay.querySelector('#ceg-tooltip') || overlay.querySelector('.ceg-tooltip');
+    }
+    return overlay;
+  }
+
   function initProjectUI() {
     if (!isProjectPage()) return;
     if (!document.body) return;
+    ensureOverlay();
     if (document.getElementById('ceg-tray-drawer')) return;
     try {
-
-    // 1. Create Bounding Box Overlay (#5E50E2 Non-Neon)
-    overlay = document.createElement('div');
-    overlay.className = 'ceg-ui-element ceg-bounding-overlay';
-    overlay.style.display = 'none';
-
-    tooltip = document.createElement('div');
-    tooltip.className = 'ceg-tooltip';
-    overlay.appendChild(tooltip);
-    document.body.appendChild(overlay);
 
     // 2. Create Tray Drawer (Bottom Right)
     trayDrawer = document.createElement('div');
@@ -536,6 +552,7 @@
     grabBtns.forEach(btn => btn.classList.toggle('active', isInspectorActive));
 
     if (active) {
+      ensureOverlay();
       document.documentElement.classList.add('ceg-active');
       document.body.classList.add('ceg-active');
       showToast('Grab Mode Active: Click any graphic or shape');
@@ -620,15 +637,13 @@
     if (!el) return true;
     if (el.closest('.ceg-ui-element')) return true;
 
-    // Filter UI crowns & 3-dots menus
-    if (el.closest('[aria-label*="Pro" i], [aria-label*="Crown" i], [data-testid*="crown" i]')) return true;
-    if (el.closest('[aria-label*="More" i], [aria-label*="Options" i], [data-testid*="more" i]')) return true;
-
+    // Filter tiny UI crowns & 3-dots menus themselves (never reject the main graphic!)
     const r = el.getBoundingClientRect ? el.getBoundingClientRect() : null;
-    if (r && (r.width <= 18 || r.height <= 18)) {
+    if (r && (r.width <= 26 && r.height <= 26)) {
       const cls = (el.className || '').toString().toLowerCase();
       const aria = (el.getAttribute('aria-label') || '').toLowerCase();
-      if (cls.includes('crown') || cls.includes('badge') || cls.includes('dots') || aria.includes('more')) {
+      if (cls.includes('crown') || cls.includes('badge') || cls.includes('dots') || 
+          aria.includes('more') || aria.includes('option') || aria.includes('crown')) {
         return true;
       }
     }
@@ -636,7 +651,9 @@
   }
 
   function onMouseMove(e) {
-    if (!isInspectorActive || !overlay || !tooltip) return;
+    if (!isInspectorActive) return;
+    ensureOverlay();
+    if (!overlay || !tooltip) return;
 
     if (e.target.closest('.ceg-ui-element')) {
       overlay.style.display = 'none';
@@ -654,9 +671,10 @@
     currentTarget = target;
     const r = target.rect;
 
+    overlay.style.position = 'fixed';
     overlay.style.display = 'block';
-    overlay.style.top = `${r.top + window.scrollY}px`;
-    overlay.style.left = `${r.left + window.scrollX}px`;
+    overlay.style.top = `${r.top}px`;
+    overlay.style.left = `${r.left}px`;
     overlay.style.width = `${r.width}px`;
     overlay.style.height = `${r.height}px`;
 

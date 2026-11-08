@@ -22,13 +22,14 @@ body.ceg-active * {
 
 /* 2. Clean Non-Neon #5E50E2 Hover Bounding Box */
 .ceg-bounding-overlay {
-  position: absolute;
-  pointer-events: none;
-  z-index: 2147483640;
+  position: fixed !important;
+  pointer-events: none !important;
+  z-index: 2147483640 !important;
   border: 2px solid #5E50E2 !important;
   background: rgba(94, 80, 226, 0.12) !important;
-  box-shadow: none !important;
+  box-shadow: 0 0 0 1px rgba(255, 255, 255, 0.45) !important;
   border-radius: 4px !important;
+  box-sizing: border-box !important;
   transition: all 0.04s ease-out;
 }
 
