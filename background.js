@@ -56,25 +56,29 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
 
 /**
  * Intelligent Multi-Tier High-Resolution Asset Fetcher
- * Tests master, screen_2x, large, and 2560px parameters on Canva CDN to get highest resolution.
+ * Tests screen_2x, screen, original, thumbnail_large, and uncompressed Canva CDN endpoints.
  */
 async function fetchHighResAsset(originalUrl) {
   const candidates = generateHighResCandidates(originalUrl);
 
+  // Try high-resolution candidates first (skip originalUrl on first pass)
   for (const url of candidates) {
+    if (url === originalUrl) continue;
     try {
       const resp = await fetch(url, { mode: 'cors' });
       if (resp.ok) {
         const mimeType = resp.headers.get('content-type') || 'image/png';
         const blob = await resp.blob();
-        if (blob.size > 200) {
+        // A high-resolution asset is larger than a tiny thumbnail
+        if (blob.size > 20000) {
+          console.log(`[HighRes] Found high-res asset (${blob.size} bytes): ${url}`);
           return await blobToBase64(blob, mimeType, url);
         }
       }
     } catch (e) {}
   }
 
-  // Fallback to original url
+  // Fallback to original URL
   const resp = await fetch(originalUrl, { mode: 'cors' });
   if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
   const mimeType = resp.headers.get('content-type') || 'image/png';
@@ -87,23 +91,42 @@ function generateHighResCandidates(rawUrl) {
   try {
     const u = new URL(rawUrl);
 
-    // If it's a Canva CDN or media URL
     if (u.hostname.includes('canva') || u.hostname.includes('canvamedia')) {
-      // 1. High-res dimension query parameter (w=2560)
-      const uHigh = new URL(rawUrl);
-      uHigh.searchParams.set('w', '2560');
-      uHigh.searchParams.delete('h');
-      uHigh.searchParams.delete('fit');
-      list.push(uHigh.toString());
+      const path = u.pathname;
 
-      // 2. High-res width parameter (width=2560)
-      const uWidth = new URL(rawUrl);
-      uWidth.searchParams.set('width', '2560');
-      uWidth.searchParams.delete('height');
-      uWidth.searchParams.delete('fit');
-      list.push(uWidth.toString());
+      // Extract base prefix and extension from Canva CDN URL
+      // Pattern e.g.: /MADat6J8e4Q/1/thumbnail.jpg or /MADat6J8e4Q/0/thumbnail.png
+      const match = path.match(/(.*\/)(thumbnail(?:_large)?|screen(?:_2x)?|preview|master|original)(\.[a-zA-Z0-9]+)/i);
 
-      // 3. Clean URL without any downscaling parameters
+      if (match) {
+        const prefix = match[1]; // e.g. /MADat6J8e4Q/1/
+        const ext = match[3];    // e.g. .jpg or .png
+
+        // 1. screen_2x (Retina 2x full resolution asset)
+        list.push(`${u.origin}${prefix}screen_2x${ext}`);
+        list.push(`${u.origin}${prefix}screen_2x.jpg`);
+        list.push(`${u.origin}${prefix}screen_2x.png`);
+
+        // 2. screen (Full screen 1080p-2K asset)
+        list.push(`${u.origin}${prefix}screen${ext}`);
+        list.push(`${u.origin}${prefix}screen.jpg`);
+        list.push(`${u.origin}${prefix}screen.png`);
+
+        // 3. original / master (Uncompressed master source)
+        list.push(`${u.origin}${prefix}original${ext}`);
+        list.push(`${u.origin}${prefix}original.jpg`);
+        list.push(`${u.origin}${prefix}original.png`);
+        list.push(`${u.origin}${prefix}master${ext}`);
+        list.push(`${u.origin}${prefix}master.jpg`);
+        list.push(`${u.origin}${prefix}master.png`);
+
+        // 4. thumbnail_large (800-1000px asset)
+        list.push(`${u.origin}${prefix}thumbnail_large${ext}`);
+        list.push(`${u.origin}${prefix}thumbnail_large.jpg`);
+        list.push(`${u.origin}${prefix}thumbnail_large.png`);
+      }
+
+      // 5. Clean URL without downscaling parameters
       const uClean = new URL(rawUrl);
       uClean.searchParams.delete('w');
       uClean.searchParams.delete('width');
@@ -112,33 +135,15 @@ function generateHighResCandidates(rawUrl) {
       uClean.searchParams.delete('fit');
       list.push(uClean.toString());
 
-      // 4. Pattern replacement: replace thumbnail with screen_2x or screen or thumbnail_large or master
-      const path = u.pathname;
-      if (path.includes('thumbnail')) {
-        const pScreen2x = new URL(rawUrl);
-        pScreen2x.pathname = path.replace(/thumbnail(?:_large)?\.(png|jpg|jpeg)/i, 'screen_2x.$1');
-        pScreen2x.search = '';
-        list.push(pScreen2x.toString());
-
-        const pScreen = new URL(rawUrl);
-        pScreen.pathname = path.replace(/thumbnail(?:_large)?\.(png|jpg|jpeg)/i, 'screen.$1');
-        pScreen.search = '';
-        list.push(pScreen.toString());
-
-        const pLarge = new URL(rawUrl);
-        pLarge.pathname = path.replace(/thumbnail\.(png|jpg|jpeg)/i, 'thumbnail_large.$1');
-        pLarge.search = '';
-        list.push(pLarge.toString());
-
-        const pMaster = new URL(rawUrl);
-        pMaster.pathname = path.replace(/thumbnail(?:_large)?\.(png|jpg|jpeg)/i, 'master.$1');
-        pMaster.search = '';
-        list.push(pMaster.toString());
-      }
+      // 6. Dynamic high-res query parameters (w=3200)
+      const uHigh = new URL(rawUrl);
+      uHigh.searchParams.set('w', '3200');
+      uHigh.searchParams.delete('h');
+      uHigh.searchParams.delete('fit');
+      list.push(uHigh.toString());
     }
   } catch (e) {}
 
-  // Always include original URL
   list.push(rawUrl);
   return [...new Set(list)];
 }

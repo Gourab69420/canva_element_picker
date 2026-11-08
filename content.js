@@ -758,9 +758,13 @@
   }
 
   function getBestImageSrc(el, fallbackSrc) {
+    // 1. Try extracting direct high-res asset URL from React props/fiber
+    const reactUrl = findHighResFromDOM(el);
+    if (reactUrl) return cleanCanvaImageUrl(reactUrl);
+
     let bestSrc = fallbackSrc || el.currentSrc || el.src || el.getAttribute('data-src') || '';
 
-    // Inspect srcset to pick highest resolution candidate
+    // 2. Inspect srcset to pick highest resolution candidate
     const srcset = el.getAttribute('srcset') || el.srcset;
     if (srcset && typeof srcset === 'string') {
       const candidates = srcset.split(',').map(s => {
@@ -780,6 +784,45 @@
     }
 
     return cleanCanvaImageUrl(bestSrc);
+  }
+
+  function findHighResFromDOM(el) {
+    if (!el) return null;
+    try {
+      let cur = el;
+      for (let d = 0; d < 8 && cur; d++) {
+        for (const attr of ['data-screen-url', 'data-highres-url', 'data-original-url', 'data-full-src', 'data-src']) {
+          const val = cur.getAttribute(attr);
+          if (val && val.startsWith('http') && !val.includes('thumbnail')) return val;
+        }
+
+        const keys = Object.keys(cur);
+        const fiberKey = keys.find(k => k.startsWith('__reactFiber$'));
+        if (fiberKey && cur[fiberKey]) {
+          let f = cur[fiberKey];
+          for (let i = 0; i < 6 && f; i++) {
+            const p = f.memoizedProps;
+            if (p) {
+              for (const prop of ['screenUrl', 'originalUrl', 'mediaUrl', 'fullUrl', 'largeUrl', 'url', 'src']) {
+                if (typeof p[prop] === 'string' && p[prop].startsWith('http') && !p[prop].includes('thumbnail')) {
+                  return p[prop];
+                }
+              }
+              if (p.asset && typeof p.asset === 'object') {
+                for (const prop of ['screenUrl', 'originalUrl', 'url', 'previewUrl']) {
+                  if (typeof p.asset[prop] === 'string' && p.asset[prop].startsWith('http') && !p.asset[prop].includes('thumbnail')) {
+                    return p.asset[prop];
+                  }
+                }
+              }
+            }
+            f = f.return;
+          }
+        }
+        cur = cur.parentElement;
+      }
+    } catch (e) {}
+    return null;
   }
 
   function cleanCanvaImageUrl(url) {
