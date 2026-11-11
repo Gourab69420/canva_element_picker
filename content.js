@@ -9,6 +9,12 @@
  */
 
 (function () {
+  // Prevent duplicate background injection wiping UI state
+  if (window.__CANVA_GRABBER_INITIALIZED__) {
+    return;
+  }
+  window.__CANVA_GRABBER_INITIALIZED__ = true;
+
   // Purge any existing extension elements from previous executions
   document.querySelectorAll('.ceg-ui-element').forEach(el => el.remove());
   if (window.__CANVA_GRABBER_CLEANUP__) {
@@ -198,20 +204,32 @@
   }
 
   // Top Nav Bar Mouse/Grab Toggle handlers (Capturing mode guarantees instant 1st-click toggle)
+  let lastToggleTime = 0;
   function onTopToggleClick(e) {
     const grabBtn = e.target.closest('#ceg-nav-grab');
     const mouseBtn = e.target.closest('#ceg-nav-mouse');
     const segContainer = e.target.closest('.ceg-nav-segmented');
     if (!grabBtn && !mouseBtn && !segContainer) return;
 
+    const now = Date.now();
+    if (now - lastToggleTime < 150) {
+      e.preventDefault();
+      e.stopPropagation();
+      e.stopImmediatePropagation();
+      return;
+    }
+    lastToggleTime = now;
+
     e.preventDefault();
     e.stopPropagation();
     e.stopImmediatePropagation();
 
     if (grabBtn) {
-      setInspector(true);
+      // If clicking grab button, switch to grab mode; if already in grab mode, toggle back to mouse!
+      setInspector(!isInspectorActive ? true : false);
     } else if (mouseBtn) {
-      setInspector(false);
+      // If clicking mouse button, switch to mouse mode; if already in mouse mode, toggle to grab!
+      setInspector(isInspectorActive ? false : true);
     } else if (segContainer) {
       setInspector(!isInspectorActive);
     }
@@ -531,6 +549,7 @@
   chrome.runtime.onMessage.addListener(onMessage);
 
   window.__CANVA_GRABBER_CLEANUP__ = () => {
+    delete window.__CANVA_GRABBER_INITIALIZED__;
     if (observer) observer.disconnect();
     if (mutationTimer) clearTimeout(mutationTimer);
     if (intervalId) clearInterval(intervalId);
@@ -1175,7 +1194,11 @@
           upscaleBtn.onclick = async () => {
             if (upscaleBtn.classList.contains('loading')) return;
             upscaleBtn.classList.add('loading');
-            upscaleBtn.innerHTML = `<span>AI Enhancing...</span>`;
+            card.classList.add('ceg-card-upscaling');
+            upscaleBtn.innerHTML = `
+              <svg class="ceg-spin-icon" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"><path d="M21 12a9 9 0 1 1-6.219-8.56"/></svg>
+              <span>Enhancing...</span>
+            `;
             showToast('Enhancing with Real-ESRGAN AI (3-6s)...');
             try {
               const upscaledDataUrl = await upscaleImageWithAI(item.dataUrl);
@@ -1185,11 +1208,13 @@
               if (chrome.runtime?.id) {
                 chrome.storage.local.set({ grabbedElements: grabbedList });
               }
+              card.classList.remove('ceg-card-upscaling');
               renderTrayItems();
               showToast('Upscaled 4x with Real-ESRGAN AI!');
             } catch (err) {
               console.error('AI Upscale failed:', err);
               showToast('Upscale failed: ' + err.message, 'error');
+              card.classList.remove('ceg-card-upscaling');
               upscaleBtn.classList.remove('loading');
               upscaleBtn.innerHTML = `<span>Upscale AI</span>`;
             }
@@ -1223,12 +1248,18 @@
         updateTrayUI();
       };
 
+      // Bottom loading progress bar
+      const progressBar = document.createElement('div');
+      progressBar.className = 'ceg-card-progress';
+      progressBar.innerHTML = '<div class="ceg-card-progress-bar"></div>';
+
       card.appendChild(img);
       card.appendChild(info);
       card.appendChild(insertBtn);
       if (upscaleBtn) card.appendChild(upscaleBtn);
       card.appendChild(dlBtn);
       card.appendChild(delBtn);
+      card.appendChild(progressBar);
       list.appendChild(card);
     });
   }

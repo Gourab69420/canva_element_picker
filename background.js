@@ -1,6 +1,6 @@
 // Background Service Worker
 
-// Auto-inject into open Canva tabs on extension install or reload
+// Auto-inject into open Canva tabs ONLY on extension install or reload
 chrome.runtime.onInstalled.addListener(() => {
   chrome.storage.local.set({
     autoInsert: true,
@@ -10,8 +10,6 @@ chrome.runtime.onInstalled.addListener(() => {
   });
   injectExistingTabs();
 });
-
-injectExistingTabs();
 
 async function injectExistingTabs() {
   try {
