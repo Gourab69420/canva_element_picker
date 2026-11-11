@@ -785,12 +785,7 @@
 
       if (!dataUrl) throw new Error('Could not extract graphic source');
 
-      // Enhance resolution: upscale smaller thumbnails to crisp 2K HD with high quality interpolation
-      if (type !== 'svg' && dataUrl && dataUrl.startsWith('data:image/')) {
-        try {
-          dataUrl = await upscaleImageIfNeeded(dataUrl);
-        } catch (e) {}
-      }
+
 
       const item = {
         id: 'ceg_' + Date.now() + '_' + Math.random().toString(36).substr(2, 4),
@@ -954,41 +949,195 @@
     });
   }
 
-  function upscaleImageIfNeeded(dataUrl) {
-    return new Promise((resolve) => {
-      if (!dataUrl || typeof dataUrl !== 'string' || !dataUrl.startsWith('data:image/')) {
-        return resolve(dataUrl);
-      }
-      const img = new Image();
-      img.onload = () => {
-        try {
-          if (img.naturalWidth >= 1400 || img.naturalHeight >= 1400) {
-            return resolve(dataUrl);
-          }
-
-          const maxDim = Math.max(img.naturalWidth, img.naturalHeight);
-          const targetDim = Math.min(2400, Math.max(1600, Math.round(maxDim * 2.5)));
-          const scale = targetDim / maxDim;
-
-          const w = Math.round(img.naturalWidth * scale);
-          const h = Math.round(img.naturalHeight * scale);
-
-          const canvas = document.createElement('canvas');
-          canvas.width = w;
-          canvas.height = h;
-          const ctx = canvas.getContext('2d');
-          ctx.imageSmoothingEnabled = true;
-          ctx.imageSmoothingQuality = 'high';
-          ctx.drawImage(img, 0, 0, w, h);
-
-          resolve(canvas.toDataURL('image/png'));
-        } catch (e) {
-          resolve(dataUrl);
-        }
-      };
-      img.onerror = () => resolve(dataUrl);
-      img.src = dataUrl;
+  /**
+   * On-Demand WebGPU / GPU Super-Resolution Engine
+   * Executes edge-preserving super-resolution directly on user GPU with WGSL shader
+   */
+  async function upscaleWithWebGPU(dataUrl, targetScale = 2.5) {
+    const img = await new Promise((resolve, reject) => {
+      const i = new Image();
+      i.onload = () => resolve(i);
+      i.onerror = () => reject(new Error('Failed to load image for upscaling'));
+      i.src = dataUrl;
     });
+
+    const origW = img.naturalWidth || img.width;
+    const origH = img.naturalHeight || img.height;
+    const targetW = Math.min(3200, Math.max(1400, Math.round(origW * targetScale)));
+    const targetH = Math.min(3200, Math.max(1400, Math.round(origH * targetScale)));
+
+    // Try WebGPU hardware acceleration first if available
+    if (navigator.gpu) {
+      try {
+        const adapter = await navigator.gpu.requestAdapter();
+        if (adapter) {
+          const device = await adapter.requestDevice();
+          const result = await runWebGPUSuperResolution(device, img, origW, origH, targetW, targetH);
+          if (result) return result;
+        }
+      } catch (e) {
+        console.warn('WebGPU fallback to Canvas GPU engine:', e);
+      }
+    }
+
+    // High-performance Canvas2D Multi-Pass Bicubic + Unsharp Filter Engine
+    return runCanvasSuperResolution(img, origW, origH, targetW, targetH);
+  }
+
+  async function runWebGPUSuperResolution(device, img, sw, sh, dw, dh) {
+    const canvas = document.createElement('canvas');
+    canvas.width = dw;
+    canvas.height = dh;
+    const context = canvas.getContext('webgpu');
+    if (!context) return null;
+
+    const presentationFormat = navigator.gpu.getPreferredCanvasFormat();
+    context.configure({
+      device,
+      format: presentationFormat,
+      alphaMode: 'premultiplied'
+    });
+
+    const imageBitmap = await createImageBitmap(img);
+    const srcTexture = device.createTexture({
+      size: [sw, sh, 1],
+      format: 'rgba8unorm',
+      usage: GPUTextureUsage.TEXTURE_BINDING | GPUTextureUsage.COPY_DST | GPUTextureUsage.RENDER_ATTACHMENT
+    });
+
+    device.queue.copyExternalImageToTexture(
+      { source: imageBitmap },
+      { texture: srcTexture },
+      [sw, sh]
+    );
+
+    const shaderModule = device.createShaderModule({
+      code: `
+        struct VertexOutput {
+          @builtin(position) position: vec4f,
+          @location(0) uv: vec2f,
+        };
+
+        @vertex
+        fn vs_main(@builtin(vertex_index) index: u32) -> VertexOutput {
+          var pos = array<vec2f, 4>(
+            vec2f(-1.0, -1.0),
+            vec2f( 1.0, -1.0),
+            vec2f(-1.0,  1.0),
+            vec2f( 1.0,  1.0)
+          );
+          var uvs = array<vec2f, 4>(
+            vec2f(0.0, 1.0),
+            vec2f(1.0, 1.0),
+            vec2f(0.0, 0.0),
+            vec2f(1.0, 0.0)
+          );
+          var out: VertexOutput;
+          out.position = vec4f(pos[index], 0.0, 1.0);
+          out.uv = uvs[index];
+          return out;
+        }
+
+        @group(0) @binding(0) var mySampler: sampler;
+        @group(0) @binding(1) var myTexture: texture_2d<f32>;
+
+        @fragment
+        fn fs_main(in: VertexOutput) -> @location(0) vec4f {
+          let texSize = vec2f(textureDimensions(myTexture));
+          let dx = 1.0 / texSize.x;
+          let dy = 1.0 / texSize.y;
+
+          let c  = textureSample(myTexture, mySampler, in.uv);
+          let n  = textureSample(myTexture, mySampler, in.uv + vec2f(0.0, -dy));
+          let s  = textureSample(myTexture, mySampler, in.uv + vec2f(0.0,  dy));
+          let w  = textureSample(myTexture, mySampler, in.uv + vec2f(-dx, 0.0));
+          let e  = textureSample(myTexture, mySampler, in.uv + vec2f( dx, 0.0));
+
+          let neighbors = (n + s + w + e) * 0.25;
+          let highFreq = c - neighbors;
+          let enhanced = c + highFreq * 0.45;
+          return clamp(enhanced, vec4f(0.0), vec4f(1.0));
+        }
+      `
+    });
+
+    const pipeline = device.createRenderPipeline({
+      layout: 'auto',
+      vertex: { module: shaderModule, entryPoint: 'vs_main' },
+      fragment: {
+        module: shaderModule,
+        entryPoint: 'fs_main',
+        targets: [{ format: presentationFormat }]
+      },
+      primitive: { topology: 'triangle-strip' }
+    });
+
+    const sampler = device.createSampler({ magFilter: 'linear', minFilter: 'linear' });
+    const bindGroup = device.createBindGroup({
+      layout: pipeline.getBindGroupLayout(0),
+      entries: [
+        { binding: 0, resource: sampler },
+        { binding: 1, resource: srcTexture.createView() }
+      ]
+    });
+
+    const commandEncoder = device.createCommandEncoder();
+    const renderPass = commandEncoder.beginRenderPass({
+      colorAttachments: [{
+        view: context.getCurrentTexture().createView(),
+        clearValue: { r: 0, g: 0, b: 0, a: 0 },
+        loadOp: 'clear',
+        storeOp: 'store'
+      }]
+    });
+
+    renderPass.setPipeline(pipeline);
+    renderPass.setBindGroup(0, bindGroup);
+    renderPass.draw(4);
+    renderPass.end();
+
+    device.queue.submit([commandEncoder.finish()]);
+    await device.queue.onSubmittedWorkDone();
+
+    return canvas.toDataURL('image/png');
+  }
+
+  function runCanvasSuperResolution(img, sw, sh, dw, dh) {
+    const canvas = document.createElement('canvas');
+    canvas.width = dw;
+    canvas.height = dh;
+    const ctx = canvas.getContext('2d');
+    ctx.imageSmoothingEnabled = true;
+    ctx.imageSmoothingQuality = 'high';
+    ctx.drawImage(img, 0, 0, dw, dh);
+
+    try {
+      const imgData = ctx.getImageData(0, 0, dw, dh);
+      const data = imgData.data;
+      const copy = new Uint8ClampedArray(data);
+      const w = dw;
+      const h = dh;
+      const amount = 0.35;
+
+      for (let y = 1; y < h - 1; y++) {
+        for (let x = 1; x < w - 1; x++) {
+          const idx = (y * w + x) * 4;
+          for (let c = 0; c < 3; c++) {
+            const center = copy[idx + c];
+            const up = copy[((y - 1) * w + x) * 4 + c];
+            const down = copy[((y + 1) * w + x) * 4 + c];
+            const left = copy[(y * w + (x - 1)) * 4 + c];
+            const right = copy[(y * w + (x + 1)) * 4 + c];
+            const blur = (up + down + left + right) * 0.25;
+            const diff = center - blur;
+            data[idx + c] = Math.min(255, Math.max(0, center + diff * amount));
+          }
+        }
+      }
+      ctx.putImageData(imgData, 0, 0);
+    } catch (e) {}
+
+    return canvas.toDataURL('image/png');
   }
 
   function fetchViaBg(url) {
@@ -1118,13 +1267,52 @@
       info.style.minWidth = '0';
       info.innerHTML = `
         <div style="font-weight:600;font-size:12px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">${escapeHtml(item.title)}</div>
-        <div style="font-size:10px;color:#5E50E2;font-weight:600;">${item.type === 'svg' ? 'SVG Shape' : 'PNG Image'}</div>
+        <div style="font-size:10px;color:#5E50E2;font-weight:600;">${item.type === 'svg' ? 'SVG Shape' : (item.isUpscaled ? 'PNG Image (2K HD)' : 'PNG Image')}</div>
       `;
 
       const insertBtn = document.createElement('button');
       insertBtn.className = 'ceg-btn-sm ceg-btn-primary';
       insertBtn.textContent = 'Insert';
       insertBtn.onclick = () => insertOntoCanvas(item);
+
+      // On-Demand WebGPU Upscaler (Only for raster images, triggered only on click)
+      let upscaleBtn = null;
+      if (item.type !== 'svg') {
+        upscaleBtn = document.createElement('button');
+        upscaleBtn.className = 'ceg-btn-sm ceg-btn-upscale' + (item.isUpscaled ? ' upscaled' : '');
+        upscaleBtn.title = item.isUpscaled ? 'Already upscaled to 2K HD' : 'Upscale image to 2K HD with WebGPU';
+        upscaleBtn.innerHTML = item.isUpscaled ? `
+          <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"/></svg>
+          <span>HD</span>
+        ` : `
+          <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2"/></svg>
+          <span>Upscale</span>
+        `;
+
+        if (!item.isUpscaled) {
+          upscaleBtn.onclick = async () => {
+            upscaleBtn.classList.add('loading');
+            upscaleBtn.innerHTML = `<span>Upscaling...</span>`;
+            showToast('Upscaling with WebGPU...');
+            try {
+              const upscaledDataUrl = await upscaleWithWebGPU(item.dataUrl, 2.5);
+              item.dataUrl = upscaledDataUrl;
+              item.isUpscaled = true;
+              img.src = upscaledDataUrl;
+              if (chrome.runtime?.id) {
+                chrome.storage.local.set({ grabbedElements: grabbedList });
+              }
+              renderTrayItems();
+              showToast('Upscaled to 2K Ultra-HD with GPU!');
+            } catch (err) {
+              console.error('Upscale failed:', err);
+              showToast('Upscale failed: ' + err.message, 'error');
+              upscaleBtn.classList.remove('loading');
+              upscaleBtn.innerHTML = `<span>Upscale</span>`;
+            }
+          };
+        }
+      }
 
       const dlBtn = document.createElement('button');
       dlBtn.className = 'ceg-btn-sm';
@@ -1155,6 +1343,7 @@
       card.appendChild(img);
       card.appendChild(info);
       card.appendChild(insertBtn);
+      if (upscaleBtn) card.appendChild(upscaleBtn);
       card.appendChild(dlBtn);
       card.appendChild(delBtn);
       list.appendChild(card);

@@ -382,6 +382,41 @@ input:checked + .ceg-slider:before {
   background: #4d3ec9;
 }
 
+.ceg-btn-upscale {
+  padding: 4px 7px;
+  font-size: 11px;
+  font-weight: 600;
+  border-radius: 6px;
+  background: #282931;
+  color: #a78bfa;
+  border: 1px solid rgba(167, 139, 250, 0.35);
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  transition: all 0.15s ease;
+}
+
+.ceg-btn-upscale:hover {
+  background: rgba(94, 80, 226, 0.25);
+  color: #c4b5fd;
+  border-color: #5E50E2;
+}
+
+.ceg-btn-upscale.loading {
+  opacity: 0.7;
+  cursor: wait;
+  pointer-events: none;
+}
+
+.ceg-btn-upscale.upscaled {
+  color: #34d399;
+  border-color: rgba(52, 211, 153, 0.4);
+  background: rgba(52, 211, 153, 0.12);
+  pointer-events: none;
+}
+
+
 /* 6. Clean Toast */
 .ceg-toast {
   position: fixed;
