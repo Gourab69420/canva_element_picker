@@ -145,7 +145,7 @@ async function fetchHighResAsset(originalUrl) {
         if (resp.ok) {
           const mimeType = resp.headers.get('content-type') || 'image/png';
           const blob = await resp.blob();
-          if (blob.size > 20000) {
+          if (blob.size > 6000 && (mimeType.startsWith('image/') || mimeType.includes('octet-stream'))) {
             return await blobToBase64(blob, mimeType, url);
           }
         }
