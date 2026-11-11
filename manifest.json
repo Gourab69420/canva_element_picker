@@ -8,7 +8,21 @@
     "storage",
     "unlimitedStorage",
     "scripting",
-    "tabs"
+    "tabs",
+    "offscreen"
+  ],
+  "content_security_policy": {
+    "extension_pages": "script-src 'self' 'wasm-unsafe-eval'; object-src 'self';"
+  },
+  "web_accessible_resources": [
+    {
+      "resources": [
+        "models/*",
+        "lib/*",
+        "icons/*"
+      ],
+      "matches": ["https://*.canva.com/*"]
+    }
   ],
   "host_permissions": [
     "https://*.canva.com/*",

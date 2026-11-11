@@ -27,8 +27,70 @@ async function injectExistingTabs() {
   } catch (e) {}
 }
 
+// Offscreen Document Manager for Real-ESRGAN AI
+let creatingOffscreenPromise = null;
+
+async function ensureOffscreenDocument() {
+  const path = 'offscreen.html';
+  if (chrome.offscreen?.hasDocument) {
+    if (await chrome.offscreen.hasDocument()) return;
+  } else if (chrome.runtime?.getContexts) {
+    const existingContexts = await chrome.runtime.getContexts({
+      contextTypes: ['OFFSCREEN_DOCUMENT'],
+      documentUrls: [chrome.runtime.getURL(path)]
+    });
+    if (existingContexts && existingContexts.length > 0) return;
+  }
+
+  if (creatingOffscreenPromise) {
+    await creatingOffscreenPromise;
+    return;
+  }
+
+  creatingOffscreenPromise = chrome.offscreen.createDocument({
+    url: path,
+    reasons: ['WORKERS', 'BLOBS'],
+    justification: 'Real-ESRGAN AI Super-Resolution via ONNX Web'
+  });
+
+  try {
+    await creatingOffscreenPromise;
+  } finally {
+    creatingOffscreenPromise = null;
+  }
+}
+
+async function handleUpscaleRequest(dataUrl) {
+  await ensureOffscreenDocument();
+  return new Promise((resolve, reject) => {
+    chrome.runtime.sendMessage(
+      {
+        target: 'offscreen',
+        action: 'RUN_AI_UPSCALE',
+        dataUrl
+      },
+      (response) => {
+        if (chrome.runtime.lastError) {
+          return reject(new Error(chrome.runtime.lastError.message));
+        }
+        if (!response || !response.success) {
+          return reject(new Error(response?.error || 'Unknown AI upscale error'));
+        }
+        resolve(response);
+      }
+    );
+  });
+}
+
 // Message Router
 chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
+  if (request.action === 'UPSCALE_IMAGE') {
+    handleUpscaleRequest(request.dataUrl)
+      .then(res => sendResponse(res))
+      .catch(err => sendResponse({ success: false, error: err.message }));
+    return true; // Keep channel open for async response
+  }
+
   if (request.action === 'FETCH_IMAGE' || request.action === 'FETCH_ASSET') {
     fetchHighResAsset(request.url)
       .then(res => sendResponse({ success: true, ...res }))
