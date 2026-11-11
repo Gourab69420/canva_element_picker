@@ -773,6 +773,13 @@
         } catch (e) {
           dataUrl = src;
         }
+
+        // Automatic HD supersampling: ensure grabbed element is crisp 1600-2200px HD on canvas
+        if (dataUrl && dataUrl.startsWith('data:image/')) {
+          try {
+            dataUrl = await upscaleImageIfNeeded(dataUrl);
+          } catch (e) {}
+        }
       } else {
         const bg = window.getComputedStyle(el).backgroundImage;
         const match = bg.match(/url\(["']?([^"']+)["']?\)/);
@@ -780,6 +787,11 @@
           const cleanUrl = cleanCanvaImageUrl(match[1]);
           const res = await fetchViaBg(cleanUrl);
           dataUrl = res.dataUrl;
+        }
+        if (dataUrl && dataUrl.startsWith('data:image/')) {
+          try {
+            dataUrl = await upscaleImageIfNeeded(dataUrl);
+          } catch (e) {}
         }
       }
 
@@ -914,6 +926,8 @@
       if (url.startsWith('data:')) return url;
       const u = new URL(url);
       if (u.hostname.includes('canva') || u.hostname.includes('canvamedia')) {
+        // Upgrade /t.png or /t.jpg shorthand to /tl.png or /tl.jpg (550px - 800px unwatermarked preview)
+        u.pathname = u.pathname.replace(/\/t(\.[a-zA-Z0-9]+)$/i, '/tl$1');
         u.searchParams.delete('w');
         u.searchParams.delete('width');
         u.searchParams.delete('h');
@@ -946,6 +960,46 @@
       };
       img.onerror = () => resolve(null);
       img.src = svgUrl;
+    });
+  }
+
+  /**
+   * Automatic High-Definition Supersampling Pass (1600px - 2200px)
+   * Ensures normal image elements dropped onto the artboard are large and crystal-sharp
+   */
+  function upscaleImageIfNeeded(dataUrl) {
+    return new Promise((resolve) => {
+      if (!dataUrl || typeof dataUrl !== 'string' || !dataUrl.startsWith('data:image/')) {
+        return resolve(dataUrl);
+      }
+      const img = new Image();
+      img.onload = () => {
+        try {
+          if (img.naturalWidth >= 1400 || img.naturalHeight >= 1400) {
+            return resolve(dataUrl);
+          }
+
+          const maxDim = Math.max(img.naturalWidth, img.naturalHeight);
+          const targetDim = Math.min(2400, Math.max(1600, Math.round(maxDim * 2.5)));
+          const scale = targetDim / maxDim;
+
+          const w = Math.round(img.naturalWidth * scale);
+          const h = Math.round(img.naturalHeight * scale);
+
+          const canvas = document.createElement('canvas');
+          canvas.width = w;
+          canvas.height = h;
+          const ctx = canvas.getContext('2d');
+          ctx.imageSmoothingEnabled = true;
+          ctx.imageSmoothingQuality = 'high';
+          ctx.drawImage(img, 0, 0, w, h);
+          resolve(canvas.toDataURL('image/png'));
+        } catch (e) {
+          resolve(dataUrl);
+        }
+      };
+      img.onerror = () => resolve(dataUrl);
+      img.src = dataUrl;
     });
   }
 

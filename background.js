@@ -118,7 +118,7 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
 
 /**
  * Intelligent Multi-Tier High-Resolution Asset Fetcher
- * Tests screen_2x, screen, original, thumbnail_large, and uncompressed Canva CDN endpoints.
+ * Probes s2, s, xl, l, m, and large preview tiers (tl, thumbnail_large, dynamic w=2400)
  */
 async function fetchHighResAsset(originalUrl) {
   if (!originalUrl) throw new Error('Invalid URL');
@@ -126,41 +126,54 @@ async function fetchHighResAsset(originalUrl) {
     return { dataUrl: originalUrl, mimeType: 'image/png', size: originalUrl.length, sourceUrl: originalUrl };
   }
 
-  // 1. Pick only the top 2 best candidate URLs (e.g. s2 or s)
-  const candidates = generateHighResCandidates(originalUrl);
-  const bestCandidates = candidates.filter(u => u !== originalUrl).slice(0, 2);
+  const candidates = generateHighResCandidates(originalUrl).filter(u => u !== originalUrl);
 
-  if (bestCandidates.length > 0) {
-    try {
-      // Fast parallel probe with a 350ms abort timeout: 0 delay!
-      const probePromise = Promise.any(bestCandidates.map(async (url) => {
-        const controller = new AbortController();
-        const timeoutId = setTimeout(() => controller.abort(), 350);
-        try {
-          const resp = await fetch(url, { mode: 'cors', signal: controller.signal });
-          clearTimeout(timeoutId);
-          if (resp.ok) {
-            const mimeType = resp.headers.get('content-type') || 'image/png';
-            const blob = await resp.blob();
-            if (blob.size > 20000) {
-              return await blobToBase64(blob, mimeType, url);
-            }
+  // Group candidates into 2 prioritized batches:
+  // Batch 1: s2, s, xl, l, m (Top 2K/FullHD assets)
+  // Batch 2: tl, thumbnail_large, dynamic w=2400 (Large previews: 550px-1000px, 100% accessible)
+  const batch1 = candidates.filter(u => /\/(s2|s|xl|l|m)(\.[a-z0-9]+)?$/i.test(new URL(u).pathname)).slice(0, 4);
+  const batch2 = candidates.filter(u => !batch1.includes(u)).slice(0, 4);
+
+  const probeBatch = async (urls, timeoutMs = 600) => {
+    if (!urls || urls.length === 0) throw new Error('Empty batch');
+    return Promise.any(urls.map(async (url) => {
+      const controller = new AbortController();
+      const timeoutId = setTimeout(() => controller.abort(), timeoutMs);
+      try {
+        const resp = await fetch(url, { mode: 'cors', signal: controller.signal });
+        clearTimeout(timeoutId);
+        if (resp.ok) {
+          const mimeType = resp.headers.get('content-type') || 'image/png';
+          const blob = await resp.blob();
+          if (blob.size > 20000) {
+            return await blobToBase64(blob, mimeType, url);
           }
-          throw new Error('Not high-res');
-        } catch (err) {
-          clearTimeout(timeoutId);
-          throw err;
         }
-      }));
+        throw new Error('Not high-res or invalid status');
+      } catch (err) {
+        clearTimeout(timeoutId);
+        throw err;
+      }
+    }));
+  };
 
-      const result = await probePromise;
-      if (result) return result;
-    } catch (e) {
-      // Parallel probe timed out or returned 403/404, fall straight to instant direct fetch
-    }
+  // 1. Try Batch 1 (s2, s, l)
+  if (batch1.length > 0) {
+    try {
+      const res1 = await probeBatch(batch1, 600);
+      if (res1) return res1;
+    } catch (e) {}
   }
 
-  // 2. Instant direct fetch of originalUrl (already cached in browser memory: ~15ms!)
+  // 2. Try Batch 2 (tl, thumbnail_large, w=2400)
+  if (batch2.length > 0) {
+    try {
+      const res2 = await probeBatch(batch2, 1000);
+      if (res2) return res2;
+    } catch (e) {}
+  }
+
+  // 3. Fallback: direct fetch of originalUrl
   const resp = await fetch(originalUrl, { mode: 'cors' });
   if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
   const mimeType = resp.headers.get('content-type') || 'image/png';
@@ -181,14 +194,45 @@ function generateHighResCandidates(rawUrl) {
         const prefix = match[1]; // e.g. /RFtO8/MAGV5TRftO8/1/
         const ext = match[3];    // e.g. .png or .jpg
 
-        // Probe only the 2 absolute highest tiers: s2 (Retina 2K) and s (Screen Full HD)
+        // High-res master & screen tiers
         list.push(`${u.origin}${prefix}s2${ext}`);
+        list.push(`${u.origin}${prefix}s2.png`);
         list.push(`${u.origin}${prefix}s${ext}`);
+        list.push(`${u.origin}${prefix}s.png`);
+        list.push(`${u.origin}${prefix}xl${ext}`);
+        list.push(`${u.origin}${prefix}l${ext}`);
+        list.push(`${u.origin}${prefix}m${ext}`);
+
+        // Large preview tiers (550px - 800px unwatermarked previews)
+        list.push(`${u.origin}${prefix}tl${ext}`);
+        list.push(`${u.origin}${prefix}tl.png`);
+        list.push(`${u.origin}${prefix}thumbnail_large${ext}`);
+        list.push(`${u.origin}${prefix}thumbnail_large.png`);
+        list.push(`${u.origin}${prefix}original${ext}`);
+      }
+
+      // Dynamic resize query parameters (e.g. ?w=150)
+      if (u.searchParams.has('w') || u.searchParams.has('width')) {
+        const uHigh = new URL(rawUrl);
+        uHigh.searchParams.set('w', '2400');
+        uHigh.searchParams.delete('width');
+        uHigh.searchParams.delete('h');
+        uHigh.searchParams.delete('height');
+        uHigh.searchParams.delete('fit');
+        list.push(uHigh.toString());
+
+        const uClean = new URL(rawUrl);
+        uClean.searchParams.delete('w');
+        uClean.searchParams.delete('width');
+        uClean.searchParams.delete('h');
+        uClean.searchParams.delete('height');
+        uClean.searchParams.delete('fit');
+        list.push(uClean.toString());
       }
     }
   } catch (e) {}
 
-  return list;
+  return [...new Set(list)];
 }
 
 function blobToBase64(blob, mimeType, sourceUrl) {
