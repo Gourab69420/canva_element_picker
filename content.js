@@ -543,6 +543,23 @@
       if (chrome.runtime?.id) chrome.storage.local.set({ grabbedElements: [], latestGrabbed: null });
       updateTrayUI();
       sendResponse({ success: true });
+    } else if (req.action === 'UPSCALE_PROGRESS') {
+      const card = document.querySelector(`.ceg-tray-card[data-id="${req.itemId}"]`);
+      if (card) {
+        const progressBar = card.querySelector('.ceg-card-progress-bar');
+        if (progressBar) {
+          progressBar.style.width = `${req.progress}%`;
+        }
+        const upscaleBtn = card.querySelector('.ceg-btn-upscale');
+        if (upscaleBtn && upscaleBtn.classList.contains('loading')) {
+          const span = upscaleBtn.querySelector('span');
+          if (span) span.textContent = `${req.progress}%`;
+        }
+        const typeEl = card.querySelector('.ceg-card-type');
+        if (typeEl) {
+          typeEl.textContent = `Enhancing (${req.progress}%)...`;
+        }
+      }
     }
     return false;
   };
@@ -1026,12 +1043,12 @@
    * On-Demand Real-ESRGAN AI Super-Resolution Engine
    * Dispatches neural network inference to the extension offscreen runner
    */
-  function upscaleImageWithAI(dataUrl) {
+  function upscaleImageWithAI(dataUrl, itemId) {
     return new Promise((resolve, reject) => {
       if (!chrome.runtime?.id) {
         return reject(new Error('Extension context invalidated. Please refresh the page.'));
       }
-      chrome.runtime.sendMessage({ action: 'UPSCALE_IMAGE', dataUrl }, (res) => {
+      chrome.runtime.sendMessage({ action: 'UPSCALE_IMAGE', dataUrl, itemId }, (res) => {
         if (chrome.runtime.lastError) return reject(new Error(chrome.runtime.lastError.message));
         if (res && res.success) resolve(res.upscaledDataUrl);
         else reject(new Error(res?.error || 'Real-ESRGAN AI upscale failed'));
@@ -1148,6 +1165,7 @@
     grabbedList.forEach(item => {
       const card = document.createElement('div');
       card.className = 'ceg-tray-card';
+      card.dataset.id = item.id;
 
       const img = document.createElement('img');
       img.src = item.dataUrl;
@@ -1164,22 +1182,24 @@
       };
 
       const info = document.createElement('div');
-      info.style.flex = '1';
-      info.style.minWidth = '0';
+      info.className = 'ceg-card-info';
       info.innerHTML = `
-        <div style="font-weight:600;font-size:12px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">${escapeHtml(item.title)}</div>
-        <div style="font-size:10px;color:#5E50E2;font-weight:600;">${item.type === 'svg' ? 'SVG Shape' : (item.isUpscaled ? 'PNG Image (4K AI)' : 'PNG Image')}</div>
+        <div class="ceg-card-title">${escapeHtml(item.title)}</div>
+        <div class="ceg-card-type">${item.type === 'svg' ? 'SVG Shape' : (item.isUpscaled ? 'PNG Image (4K AI)' : 'PNG Image')}</div>
       `;
+
+      const actions = document.createElement('div');
+      actions.className = 'ceg-card-actions';
 
       const insertBtn = document.createElement('button');
       insertBtn.className = 'ceg-btn-sm ceg-btn-primary';
       insertBtn.textContent = 'Insert';
       insertBtn.onclick = () => insertOntoCanvas(item);
+      actions.appendChild(insertBtn);
 
       // On-Demand Real-ESRGAN AI Upscaler (Only for raster images, triggered only on click)
-      let upscaleBtn = null;
       if (item.type !== 'svg') {
-        upscaleBtn = document.createElement('button');
+        const upscaleBtn = document.createElement('button');
         upscaleBtn.className = 'ceg-btn-sm ceg-btn-upscale' + (item.isUpscaled ? ' upscaled' : '');
         upscaleBtn.title = item.isUpscaled ? 'Already upscaled 4x with Real-ESRGAN AI' : 'Upscale image 4x with Real-ESRGAN AI';
         upscaleBtn.innerHTML = item.isUpscaled ? `
@@ -1195,13 +1215,15 @@
             if (upscaleBtn.classList.contains('loading')) return;
             upscaleBtn.classList.add('loading');
             card.classList.add('ceg-card-upscaling');
+            const pBar = card.querySelector('.ceg-card-progress-bar');
+            if (pBar) pBar.style.width = '0%';
             upscaleBtn.innerHTML = `
               <svg class="ceg-spin-icon" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"><path d="M21 12a9 9 0 1 1-6.219-8.56"/></svg>
-              <span>Enhancing...</span>
+              <span>0%</span>
             `;
-            showToast('Enhancing with Real-ESRGAN AI (3-6s)...');
+            showToast('Enhancing with Real-ESRGAN AI...');
             try {
-              const upscaledDataUrl = await upscaleImageWithAI(item.dataUrl);
+              const upscaledDataUrl = await upscaleImageWithAI(item.dataUrl, item.id);
               item.dataUrl = upscaledDataUrl;
               item.isUpscaled = true;
               img.src = upscaledDataUrl;
@@ -1220,10 +1242,11 @@
             }
           };
         }
+        actions.appendChild(upscaleBtn);
       }
 
       const dlBtn = document.createElement('button');
-      dlBtn.className = 'ceg-btn-sm';
+      dlBtn.className = 'ceg-btn-sm ceg-btn-icon';
       dlBtn.title = 'Download';
       dlBtn.innerHTML = `<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>`;
       dlBtn.onclick = () => {
@@ -1237,9 +1260,10 @@
         }
         a.click();
       };
+      actions.appendChild(dlBtn);
 
       const delBtn = document.createElement('button');
-      delBtn.className = 'ceg-btn-sm';
+      delBtn.className = 'ceg-btn-sm ceg-btn-icon';
       delBtn.title = 'Remove from Tray';
       delBtn.innerHTML = `<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>`;
       delBtn.onclick = () => {
@@ -1247,18 +1271,16 @@
         if (chrome.runtime?.id) chrome.storage.local.set({ grabbedElements: grabbedList });
         updateTrayUI();
       };
+      actions.appendChild(delBtn);
 
-      // Bottom loading progress bar
+      // Bottom progressive loading progress bar
       const progressBar = document.createElement('div');
       progressBar.className = 'ceg-card-progress';
       progressBar.innerHTML = '<div class="ceg-card-progress-bar"></div>';
 
       card.appendChild(img);
       card.appendChild(info);
-      card.appendChild(insertBtn);
-      if (upscaleBtn) card.appendChild(upscaleBtn);
-      card.appendChild(dlBtn);
-      card.appendChild(delBtn);
+      card.appendChild(actions);
       card.appendChild(progressBar);
       list.appendChild(card);
     });

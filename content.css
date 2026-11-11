@@ -215,7 +215,7 @@ body.ceg-active * {
   position: fixed;
   bottom: 48px;
   right: 48px;
-  width: 330px;
+  width: 375px;
   max-height: 460px;
   background: #18191f;
   border: 1px solid rgba(255, 255, 255, 0.15);
@@ -339,7 +339,7 @@ input:checked + .ceg-slider:before {
   display: flex;
   align-items: center;
   gap: 10px;
-  padding: 7px 9px;
+  padding: 8px 10px;
   background: #202127;
   border: 1px solid rgba(255, 255, 255, 0.08);
   border-radius: 8px;
@@ -356,7 +356,76 @@ input:checked + .ceg-slider:before {
   background: #22232d !important;
 }
 
-/* Sleek bottom loading bar on element tile */
+.ceg-tray-card img {
+  width: 38px;
+  height: 38px;
+  flex-shrink: 0;
+  object-fit: contain;
+  background: #282931;
+  border-radius: 6px;
+  cursor: grab;
+}
+
+.ceg-card-info {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  gap: 2px;
+}
+
+.ceg-card-title {
+  font-weight: 600;
+  font-size: 12px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  color: #ffffff;
+}
+
+.ceg-card-type {
+  font-size: 10px;
+  color: #a78bfa;
+  font-weight: 600;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.ceg-card-actions {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  flex-shrink: 0;
+}
+
+.ceg-btn-sm {
+  padding: 4px 8px;
+  height: 26px;
+  box-sizing: border-box;
+  font-size: 11px;
+  font-weight: 600;
+  border-radius: 6px;
+  background: #282931;
+  color: #e4e4e7;
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 4px;
+  white-space: nowrap;
+  flex-shrink: 0;
+}
+
+.ceg-btn-icon {
+  width: 26px;
+  height: 26px;
+  padding: 0;
+}
+
+/* Progressive Loading Bar across bottom of tile */
 .ceg-card-progress {
   position: absolute;
   bottom: 0;
@@ -373,46 +442,21 @@ input:checked + .ceg-slider:before {
 }
 
 .ceg-card-progress-bar {
-  width: 100%;
+  width: 0%;
   height: 100%;
-  background: linear-gradient(90deg, #5E50E2 0%, #c4b5fd 50%, #5E50E2 100%);
-  background-size: 200% 100%;
-  animation: cegLaserShimmer 1.2s ease-in-out infinite;
+  background: linear-gradient(90deg, #5E50E2 0%, #c4b5fd 100%);
+  transition: width 0.25s ease-out;
   box-shadow: 0 0 8px #a78bfa;
-}
-
-@keyframes cegLaserShimmer {
-  0% { background-position: 200% 0; }
-  100% { background-position: -200% 0; }
 }
 
 .ceg-spin-icon {
   animation: cegSpin 0.9s linear infinite;
   display: inline-block;
+  flex-shrink: 0;
 }
 
 @keyframes cegSpin {
   100% { transform: rotate(360deg); }
-}
-
-.ceg-tray-card img {
-  width: 38px;
-  height: 38px;
-  object-fit: contain;
-  background: #282931;
-  border-radius: 6px;
-  cursor: grab;
-}
-
-.ceg-btn-sm {
-  padding: 4px 8px;
-  font-size: 11px;
-  font-weight: 600;
-  border-radius: 6px;
-  background: #282931;
-  color: #e4e4e7;
-  border: 1px solid rgba(255, 255, 255, 0.1);
-  cursor: pointer;
 }
 
 .ceg-btn-sm:hover {

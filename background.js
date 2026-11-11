@@ -58,14 +58,15 @@ async function ensureOffscreenDocument() {
   }
 }
 
-async function handleUpscaleRequest(dataUrl) {
+async function handleUpscaleRequest(dataUrl, itemId) {
   await ensureOffscreenDocument();
   return new Promise((resolve, reject) => {
     chrome.runtime.sendMessage(
       {
         target: 'offscreen',
         action: 'RUN_AI_UPSCALE',
-        dataUrl
+        dataUrl,
+        itemId
       },
       (response) => {
         if (chrome.runtime.lastError) {
@@ -82,8 +83,19 @@ async function handleUpscaleRequest(dataUrl) {
 
 // Message Router
 chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
+  if (request.action === 'UPSCALE_PROGRESS') {
+    chrome.tabs.query({ url: '*://*.canva.com/*' }, (tabs) => {
+      if (tabs && tabs.length > 0) {
+        tabs.forEach(tab => {
+          chrome.tabs.sendMessage(tab.id, request).catch(() => {});
+        });
+      }
+    });
+    return false;
+  }
+
   if (request.action === 'UPSCALE_IMAGE') {
-    handleUpscaleRequest(request.dataUrl)
+    handleUpscaleRequest(request.dataUrl, request.itemId)
       .then(res => sendResponse(res))
       .catch(err => sendResponse({ success: false, error: err.message }));
     return true; // Keep channel open for async response

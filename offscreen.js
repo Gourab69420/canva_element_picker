@@ -54,7 +54,7 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
     return false;
   }
 
-  runRealESRGAN(message.dataUrl)
+  runRealESRGAN(message.dataUrl, message.itemId)
     .then(result => {
       sendResponse({ success: true, ...result });
     })
@@ -66,7 +66,7 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
   return true; // Keep message channel open for async response
 });
 
-async function runRealESRGAN(dataUrl) {
+async function runRealESRGAN(dataUrl, itemId) {
   const sess = await getInferenceSession();
 
   // 1. Load image
@@ -125,6 +125,8 @@ async function runRealESRGAN(dataUrl) {
   const pad = 12;
   const numTilesX = Math.ceil(sw / tileSize);
   const numTilesY = Math.ceil(sh / tileSize);
+  const totalTiles = numTilesX * numTilesY;
+  let completedTiles = 0;
 
   for (let ty = 0; ty < numTilesY; ty++) {
     for (let tx = 0; tx < numTilesX; tx++) {
@@ -184,6 +186,18 @@ async function runRealESRGAN(dataUrl) {
           dstPixels[outIdx + 3] = 255;
         }
       }
+
+      completedTiles++;
+      if (itemId) {
+        try {
+          const pct = Math.min(95, Math.round((completedTiles / totalTiles) * 100));
+          chrome.runtime.sendMessage({
+            action: 'UPSCALE_PROGRESS',
+            itemId,
+            progress: pct
+          });
+        } catch (e) {}
+      }
     }
   }
 
@@ -209,6 +223,16 @@ async function runRealESRGAN(dataUrl) {
   const outCtx = outCanvas.getContext('2d');
   const outImageData = new ImageData(dstPixels, dw, dh);
   outCtx.putImageData(outImageData, 0, 0);
+
+  if (itemId) {
+    try {
+      chrome.runtime.sendMessage({
+        action: 'UPSCALE_PROGRESS',
+        itemId,
+        progress: 100
+      });
+    } catch (e) {}
+  }
 
   const upscaledDataUrl = outCanvas.toDataURL('image/png');
   return {
